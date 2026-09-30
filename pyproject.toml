@@ -1,0 +1,55 @@
+[project]
+name = "sobesnik"
+version = "0.1.0"
+description = "Self-hosted тренажёр технических собеседований"
+requires-python = ">=3.12,<3.13"
+dependencies = ["sobesnik-api", "sobesnik-core", "sobesnik-llm"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "asyncpg-stubs>=0.30",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["apps/api", "packages/core", "packages/llm"]
+
+[tool.uv.sources]
+sobesnik-api = { workspace = true }
+sobesnik-core = { workspace = true }
+sobesnik-llm = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
+# Тексты на русском: кириллица в строках и комментариях — не опечатка.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sobesnik_api", "sobesnik_core", "sobesnik_llm"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = ["apps/api/src", "packages/core/src", "packages/llm/src"]
+explicit_package_bases = true
+exclude = ["^apps/api/alembic/", "/\\.venv/"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/core/tests", "packages/llm/tests", "apps/api/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = "-m 'not ollama' --import-mode=importlib"
+markers = ["ollama: живые тесты на реальной Ollama (запуск: pytest -m ollama)"]

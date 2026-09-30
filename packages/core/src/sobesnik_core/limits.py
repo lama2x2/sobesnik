@@ -1,0 +1,7 @@
+"""Лимиты входных данных (000-overview §4)."""
+
+MAX_VACANCY_CHARS = 20_000
+
+QUESTIONS_MIN = 3
+QUESTIONS_MAX = 15
+QUESTIONS_DEFAULT = 5
