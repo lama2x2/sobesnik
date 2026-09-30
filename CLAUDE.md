@@ -59,7 +59,7 @@ docs            архитектура, ADR, спецификации (docs/spec
 Всё запускается через Docker Compose — на машине, кроме Docker, ничего не ставится.
 Python-зависимости и воркспейс монорепо — через **uv** (один `uv.lock` на весь репозиторий).
 
-Целевые команды (появятся вместе с первым `compose.yaml`):
+Первый запуск: `cp deploy/.env.example .env` (необязательно) и `ollama pull qwen3:8b` на хосте.
 
 ```bash
 docker compose up -d --build                       # поднять всё
@@ -68,10 +68,13 @@ docker compose run --rm tools uv run pytest        # тесты
 docker compose run --rm tools uv run ruff check .  # линтер
 docker compose run --rm tools uv run ruff format . # форматирование
 docker compose run --rm tools uv run mypy .        # типы
+docker compose run --rm tools uv run pytest -m ollama  # живой тест на Ollama хоста
 docker compose run --rm api uv run alembic upgrade head
 ```
 
-`tools` — служебный сервис для тестов и линтеров, чтобы не ставить окружение локально.
+`tools` — служебный сервис для тестов и линтеров, чтобы не ставить окружение локально
+(профиль `tools`: `up` его не поднимает). Репозиторий смонтирован в `/app`, venv лежит в `/opt/venv`.
+После изменения зависимостей — `docker compose --profile tools build`. `api` накатывает миграции сам при старте.
 
 ## Процесс
 

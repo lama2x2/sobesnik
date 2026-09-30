@@ -31,6 +31,29 @@ Sobesnik устроен иначе:
 
 Интерфейсы: веб-кабинет и Telegram-бот.
 
+## Запуск
+
+Нужны Docker и [Ollama](https://ollama.com). На Mac Ollama ставится на хост: в Docker на Маке нет GPU.
+
+```bash
+ollama pull qwen3:8b
+cp deploy/.env.example .env   # необязательно: без .env работают те же значения
+docker compose up -d --build
+curl localhost:8000/api/v1/health/llm
+```
+
+Пока готов только первый срез: API разбирает вакансию и генерирует вопросы.
+
+```bash
+USER_ID=$(curl -s -X PUT localhost:8000/api/v1/users/telegram/1 | jq -r .id)
+VAC=$(jq -n --arg u "$USER_ID" --rawfile t vacancy.txt '{user_id: $u, text: $t}' \
+  | curl -s -X POST localhost:8000/api/v1/vacancies -H 'content-type: application/json' -d @- | jq -r .id)
+curl -s -X POST localhost:8000/api/v1/sessions -H 'content-type: application/json' \
+  -d "{\"vacancy_id\": \"$VAC\", \"n\": 5}" | jq
+```
+
+Документация API — `http://localhost:8000/docs`.
+
 ## Структура репозитория
 
 ```
