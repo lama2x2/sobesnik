@@ -26,8 +26,8 @@
 - uv-воркспейс: `apps/api`, `packages/core`, `packages/llm`; ruff, mypy, pytest.
 - `compose.yaml`: api, postgres, tools; Ollama на хосте через `host.docker.internal`; `deploy/.env.example`.
 - `packages/llm`: интерфейс `LLMProvider` и провайдер `ollama`, фейковый провайдер для тестов.
-- Alembic и первые таблицы: `user`, `vacancy`, `requirement`, `question`.
-- `POST /vacancies`, `POST /sessions` в минимальном виде, `GET /health/llm`.
+- Alembic и первые таблицы: `users`, `vacancy`, `requirement`, `question`, `session`, `session_question`.
+- `PUT /users/telegram/{id}`, `POST /vacancies`, `POST /sessions` в минимальном виде, `GET /health/llm`.
 
 **Демо:** `curl` с реальной вакансией → JSON с уровнем, стеком и 5 вопросами.
 **Готово:** срез работает на Mac, тесты и линтеры зелёные в `tools`, команды из `CLAUDE.md` реально работают.
