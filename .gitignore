@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Секреты и локальные настройки
+.env
+.env.*
+!.env.example
+
+# Данные: аудио, модели, выгрузки
+*.wav
+*.mp3
+*.ogg
+*.m4a
+*.webm
+models/
+data/
+research/data/
+
+# Node
+node_modules/
+
+# IDE и ОС
+.idea/
+.vscode/
+.DS_Store
