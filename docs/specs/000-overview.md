@@ -29,7 +29,7 @@ Sobesnik — self-hosted тренажёр технических собесед�
 
 **После MVP:**
 - веб-кабинет на Jinja + HTMX — первый шаг после MVP (требования в §4.7);
-- импорт вакансий через публичный API hh.ru;
+- импорт вакансий через API hh.ru (поиск, подписки); ссылка на одну вакансию принимается уже в MVP (VAC-1);
 - интервальное повторение (SM-2 и аналоги) вместо простого правила «слабая тема»;
 - провайдер vLLM, мониторинг (Prometheus/Grafana), несколько языков интерфейса;
 - live-coding и задачи с кодом — не планируются.
@@ -81,7 +81,8 @@ Sobesnik — self-hosted тренажёр технических собесед�
 Нумерация сквозная внутри модуля, чтобы на требования можно было ссылаться из спек и тестов.
 
 ### 4.1. Вакансия (VAC)
-- VAC-1. Принимает произвольный текст вакансии на русском или английском длиной до 20 000 символов.
+- VAC-1. Принимает вакансию на русском или английском: текстом до 20 000 символов, ссылкой или сохранённой
+  HTML-страницей. Если ссылка не читается, пользователь получает просьбу прислать текст или HTML.
 - VAC-2. Возвращает профиль: должность, уровень (`intern|junior|middle|senior|lead`), нормализованный стек,
   список требований. У каждого требования есть текст, тема из справочника и признак «обязательно / желательно».
 - VAC-3. Если текст не похож на вакансию, возвращается понятная ошибка, а не пустой профиль.
@@ -256,10 +257,10 @@ flowchart TB
 | Таблица | Ключевые поля |
 |---|---|
 | `user` | id, telegram_id (unique, null), created_at, settings jsonb |
-| `topic` | id, slug (unique), title, parent_id — справочник, сидится из YAML |
-| `vacancy` | id, user_id, raw_text, title, level, stack text[], parser_model, prompt_version, created_at |
-| `requirement` | id, vacancy_id, text, topic_id, is_required |
-| `question` | id, topic_id, requirement_id (null), text, key_points jsonb, reference_answer (null), source `generated\|bank\|dataset`, dataset_item_id (null), gen_model, prompt_version |
+| `topic` | slug (PK), title, parent_slug — справочник, синхронизируется из YAML |
+| `vacancy` | id, user_id, raw_text, source `text\|url\|html`, source_url (null), title, level, stack text[], parser_model, prompt_version, created_at |
+| `requirement` | id, vacancy_id, text, topic_slug, is_required |
+| `question` | id, topic_slug, requirement_id (null), text, key_points jsonb, reference_answer (null), source `generated\|bank\|dataset`, dataset_item_id (null), gen_model, prompt_version |
 | `session` | id, user_id, vacancy_id (null), mode `vacancy\|repeat`, status, created_at, finished_at |
 | `session_question` | session_id, question_id, position |
 | `answer` | id, question_id, session_id (null), user_id (null), source `user\|dataset`, kind `text\|voice`, text (null), status, created_at |
@@ -269,7 +270,7 @@ flowchart TB
 | `eval_run` | id, name, provider, model, rubric_version, transcript_kind, filter jsonb, status, created_at |
 | `dataset` | id, name, source_url, license, lang, score_scale, imported_at |
 | `dataset_item` | id, dataset_id, external_id, human_scores jsonb — связывает импортированные вопросы и ответы с исходником |
-| `topic_progress` | user_id, topic_id, attempts, last_score, avg_last3, is_weak, updated_at |
+| `topic_progress` | user_id, topic_slug, attempts, last_score, avg_last3, is_weak, updated_at |
 
 Ответ из датасета — обычный `answer` с `source = dataset` и без пользователя. Благодаря этому
 боевой конвейер и эксперименты используют один и тот же код оценки.
@@ -278,9 +279,9 @@ flowchart TB
 
 | Метод и путь | Назначение |
 |---|---|
-| `GET /health`, `GET /health/llm` | живость сервиса и доступность LLM |
+| `GET /health`, `GET /health/llm` | живость сервиса и доступность LLM по ролям `gen` и `eval` |
 | `PUT /users/telegram/{telegram_id}` | найти или создать пользователя (бот) |
-| `POST /vacancies` | разобрать текст вакансии → профиль |
+| `POST /vacancies` | разобрать вакансию (текст, ссылка или HTML) → профиль |
 | `GET /vacancies/{id}`, `PATCH /vacancies/{id}` | профиль, правка уровня и требований |
 | `POST /sessions` | создать сессию: `{vacancy_id, n}` или `{mode: "repeat", n}` → вопросы |
 | `GET /sessions/{id}` | сессия, вопросы, статусы ответов |
