@@ -19,7 +19,7 @@ class Requirement(BaseModel):
     text: str = Field(min_length=1, max_length=500)
     is_required: bool
     topic: str | None = None
-    """Slug листовой темы. В JSON-схеме для модели — обязательный enum справочника."""
+    """Slug листовой темы. Для модели — обязательная строка; справочник проверяет check_parsed."""
 
 
 class VacancyProfile(BaseModel):
@@ -40,11 +40,15 @@ class ParsedVacancy(BaseModel):
     profile: VacancyProfile | None = None
 
 
-def parse_json_schema(catalog: TopicCatalog) -> dict[str, Any]:
-    """JSON Schema разбора, где тема требования — обязательный enum листовых тем."""
+def parse_json_schema() -> dict[str, Any]:
+    """JSON Schema разбора, где тема требования — обязательная строка.
+
+    Не enum справочника: грамматика с enum из ~100 слагов вдвое замедляет генерацию в Ollama
+    (002 §8.1). Тема вне справочника ловится в check_parsed и уходит на повтор.
+    """
     schema = copy.deepcopy(ParsedVacancy.model_json_schema())
     requirement = schema["$defs"]["Requirement"]
-    requirement["properties"]["topic"] = {"type": "string", "enum": list(catalog.leaf_slugs)}
+    requirement["properties"]["topic"] = {"type": "string"}
     requirement["required"] = ["text", "is_required", "topic"]
     return schema
 

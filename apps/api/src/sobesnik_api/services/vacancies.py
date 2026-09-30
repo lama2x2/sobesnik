@@ -84,7 +84,7 @@ async def parse_vacancy(llm: LLMProvider, text: str, *, max_retries: int = 2) ->
             seed=template.seed,
         ),
         ParsedVacancy,
-        json_schema=parse_json_schema(catalog),
+        json_schema=parse_json_schema(),
         check=lambda parsed: check_parsed(parsed, catalog),
         max_retries=max_retries,
     )

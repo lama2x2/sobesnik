@@ -14,7 +14,12 @@ from sobesnik_llm.factory import make_provider
 from sobesnik_llm.fake import FakeProvider
 from sobesnik_llm.ollama import OllamaProvider
 from sobesnik_llm.openai_compatible import OpenAICompatibleProvider
-from sobesnik_llm.structured import StructuredResult, clean_json_text, generate_structured
+from sobesnik_llm.structured import (
+    StructuredResult,
+    clean_json_text,
+    generate_structured,
+    grammar_schema,
+)
 
 __all__ = [
     "FakeProvider",
@@ -33,5 +38,6 @@ __all__ = [
     "StructuredResult",
     "clean_json_text",
     "generate_structured",
+    "grammar_schema",
     "make_provider",
 ]

@@ -62,7 +62,7 @@ async def test_create_vacancy(
     assert replies.vacancy_text in request.prompt
     assert "db.indexes — Индексы и планы запросов" in request.system
     assert request.json_schema is not None
-    assert "enum" in json.dumps(request.json_schema["$defs"]["Requirement"])
+    assert "topic" in request.json_schema["$defs"]["Requirement"]["required"]
     assert (request.temperature, request.seed) == (0.0, 42)
 
     async with engine.connect() as conn:

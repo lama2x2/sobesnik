@@ -12,6 +12,7 @@ from sobesnik_llm import (
     LLMUnavailableError,
     clean_json_text,
     generate_structured,
+    grammar_schema,
 )
 
 
@@ -28,7 +29,13 @@ async def test_valid_first_time() -> None:
     result = await generate_structured(llm, REQ, Answer)
     assert result.value.items == ["a", "b"]
     assert len(result.attempts) == 1
-    assert llm.requests[0].json_schema == Answer.model_json_schema()
+    sent = llm.requests[0].json_schema
+    assert sent is not None
+    assert sent["properties"]["items"] == {
+        "items": {"type": "string"},
+        "title": "Items",
+        "type": "array",
+    }
     assert llm.requests[0].prompt == "дай ответ"
 
 
@@ -134,3 +141,28 @@ async def test_log_has_no_model_text(caplog: pytest.LogCaptureFixture) -> None:
         assert secret not in json.dumps(record.__dict__, default=str, ensure_ascii=False)
     assert caplog.records[0].accepted is False  # type: ignore[attr-defined]
     assert caplog.records[1].accepted is True  # type: ignore[attr-defined]
+
+
+def test_grammar_schema_drops_validator_only_keys() -> None:
+    schema = {
+        "type": "object",
+        "required": ["a"],
+        "properties": {
+            "a": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/B"}},
+            "level": {"enum": ["x", "y"]},
+        },
+        "$defs": {"B": {"type": "string", "minLength": 1, "maxLength": 5, "pattern": "^a"}},
+        "anyOf": [{"type": "string", "maxLength": 2}, {"type": "null"}],
+    }
+    loose = grammar_schema(schema)
+    assert loose == {
+        "type": "object",
+        "required": ["a"],
+        "properties": {
+            "a": {"type": "array", "items": {"$ref": "#/$defs/B"}},
+            "level": {"enum": ["x", "y"]},
+        },
+        "$defs": {"B": {"type": "string"}},
+        "anyOf": [{"type": "string"}, {"type": "null"}],
+    }
+    assert "minItems" in str(schema)  # исходная схема не изменена

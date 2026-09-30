@@ -44,7 +44,7 @@ async def test_create_session_default_n(
     assert "4. [обязательно, аспект 2] Asyncio" in request.prompt
     assert "уже задавались" not in request.prompt
     assert request.json_schema is not None
-    assert request.json_schema["properties"]["questions"]["minItems"] == 5
+    assert "minItems" not in request.json_schema["properties"]["questions"]  # проверяет Pydantic
     assert request.temperature == 0.7
 
     async with engine.connect() as conn:

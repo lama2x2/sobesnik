@@ -25,6 +25,24 @@ class StructuredResult[T: BaseModel]:
     """Все ответы модели, включая отвергнутые."""
 
 
+# Ограничения, которые проверяет Pydantic, а не грамматика провайдера: в грамматике Ollama они
+# в разы замедляют генерацию (002 §5.1).
+_VALIDATOR_ONLY_KEYS = frozenset({"minItems", "maxItems", "minLength", "maxLength", "pattern"})
+
+
+def grammar_schema(schema: Any) -> Any:
+    """Копия JSON Schema без ограничений длины и количества: только структура, типы и enum."""
+    if isinstance(schema, dict):
+        return {
+            key: grammar_schema(value)
+            for key, value in schema.items()
+            if key not in _VALIDATOR_ONLY_KEYS
+        }
+    if isinstance(schema, list):
+        return [grammar_schema(item) for item in schema]
+    return schema
+
+
 def clean_json_text(text: str) -> str:
     """Убирает блок рассуждений <think> и обёртку ```json, если модель их добавила."""
     text = _THINK.sub("", text, count=1)
@@ -56,10 +74,13 @@ async def generate_structured[T: BaseModel](
 ) -> StructuredResult[T]:
     """Вызывает модель, пока ответ не пройдёт схему и `check`, но не больше `1 + max_retries` раз.
 
+    Модели уходит облегчённая схема (`grammar_schema`), полную проверку делает Pydantic.
+
     `check` возвращает список проблем; пустой список — ответ принят. Недоступность провайдера
     и прочие ошибки LLM не повторяются. Тексты промптов и ответов в лог не пишутся.
     """
-    base = request.model_copy(update={"json_schema": json_schema or schema.model_json_schema()})
+    loose = grammar_schema(json_schema or schema.model_json_schema())
+    base = request.model_copy(update={"json_schema": loose})
     attempts: list[LLMResponse] = []
     problems: list[str] = []
     for attempt in range(max_retries + 1):

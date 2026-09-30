@@ -63,17 +63,16 @@ def test_parsed_vacancy_kinds() -> None:
 
 
 def test_parse_json_schema() -> None:
-    catalog = load_topics()
-    schema = parse_json_schema(catalog)
+    schema = parse_json_schema()
     assert list(schema["properties"]) == ["kind", "profile"]
     assert schema["properties"]["kind"]["enum"] == ["vacancy", "resume", "other"]
     requirement = schema["$defs"]["Requirement"]
-    assert requirement["properties"]["topic"]["enum"] == list(catalog.leaf_slugs)
+    assert requirement["properties"]["topic"] == {"type": "string"}
     assert "topic" in requirement["required"]
     level = schema["$defs"]["VacancyProfile"]["properties"]["level"]
     assert set(level["enum"]) == set(LEVELS)
     # модельная схема не испорчена
-    assert "enum" not in str(ParsedVacancy.model_json_schema()["$defs"]["Requirement"])
+    assert "topic" not in ParsedVacancy.model_json_schema()["$defs"]["Requirement"]["required"]
 
 
 def parsed(requirements: list[dict[str, object]]) -> ParsedVacancy:

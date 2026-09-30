@@ -46,7 +46,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 mypy_path = ["apps/api/src", "packages/core/src", "packages/llm/src"]
 explicit_package_bases = true
-exclude = ["^apps/api/alembic/", "/\\.venv/"]
+exclude = ["^apps/api/alembic/", "/\\.venv/", "^research/data/"]
 
 [tool.pytest.ini_options]
 testpaths = ["packages/core/tests", "packages/llm/tests", "apps/api/tests"]
