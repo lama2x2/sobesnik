@@ -1,0 +1,2 @@
+Python, Django, FastAPI, PostgreSQL, Redis, Celery, RabbitMQ, Kafka, Docker, Kubernetes, Helm,
+Terraform, AWS, GitLab CI, Prometheus, Grafana, ELK, pytest, mypy, ruff, SQLAlchemy, Alembic, asyncio

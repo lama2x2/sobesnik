@@ -69,6 +69,7 @@ docker compose run --rm tools uv run ruff check .  # линтер
 docker compose run --rm tools uv run ruff format . # форматирование
 docker compose run --rm tools uv run mypy .        # типы
 docker compose run --rm tools uv run pytest -m ollama  # живой тест на Ollama хоста
+docker compose run --rm tools uv run pytest -m network # живая загрузка вакансии с hh.ru
 docker compose run --rm api uv run alembic upgrade head
 ```
 

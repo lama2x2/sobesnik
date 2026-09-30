@@ -3,6 +3,8 @@
 import logging
 import uuid
 from collections import Counter
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,9 +14,13 @@ from sobesnik_api.errors import NotFoundError
 from sobesnik_api.services.vacancies import get_vacancy
 from sobesnik_core.checks import question_problems
 from sobesnik_core.generation import questions_prompt
-from sobesnik_core.planning import PlanRequirement, plan_questions
+from sobesnik_core.planning import PlanRequirement, PlanSlot, plan_questions
 from sobesnik_core.prompt import load_prompt
-from sobesnik_core.questions import GeneratedQuestions, questions_json_schema
+from sobesnik_core.questions import (
+    GeneratedQuestion,
+    GeneratedQuestions,
+    questions_json_schema,
+)
 from sobesnik_core.vacancy import VacancyProfile
 from sobesnik_llm import LLMProvider, LLMRequest, generate_structured
 
@@ -49,31 +55,44 @@ async def asked_questions(db: AsyncSession, vacancy_id: uuid.UUID) -> list[Quest
     return list(result)
 
 
-async def create_session(
-    db: AsyncSession,
+@dataclass(frozen=True)
+class GeneratedSession:
+    slots: list[PlanSlot]
+    questions: list[GeneratedQuestion]
+    """Вопрос i отвечает слоту плана i."""
+    prompt_version: str
+    attempts: int
+
+
+async def generate_questions(
     llm: LLMProvider,
-    vacancy_id: uuid.UUID,
+    profile: VacancyProfile,
     n: int,
     *,
+    asked: Sequence[str] = (),
+    asked_counts: Sequence[int] | None = None,
     max_retries: int = 2,
-) -> TrainingSession:
-    vacancy = await get_vacancy(db, vacancy_id)
-    requirements = vacancy.requirements
-    asked = await asked_questions(db, vacancy.id)
-    asked_texts = [q.text for q in asked]
-    asked_counts = Counter(q.requirement_id for q in asked)
+) -> GeneratedSession:
+    """План по требованиям профиля и N вопросов от LLM, без БД.
+
+    `asked` — тексты уже заданных по вакансии вопросов, `asked_counts[i]` — сколько их было
+    по требованию i.
+    """
+    counts = asked_counts or [0] * len(profile.requirements)
     slots = plan_questions(
-        [PlanRequirement(r.is_required, r.topic_slug, asked_counts[r.id]) for r in requirements],
+        [
+            PlanRequirement(r.is_required, r.topic, count)
+            for r, count in zip(profile.requirements, counts, strict=True)
+        ],
         n,
     )
-
     template = load_prompt(QUESTIONS_PROMPT)
-    rendered = questions_prompt(template, profile_of(vacancy), slots, asked_texts)
+    rendered = questions_prompt(template, profile, slots, asked)
 
     def check(generated: GeneratedQuestions) -> list[str]:
         if len(generated.questions) < n:
             return [f"questions: нужно ровно {n} вопросов, получено {len(generated.questions)}"]
-        return question_problems(generated.questions[:n], asked_texts)
+        return question_problems(generated.questions[:n], asked)
 
     result = await generate_structured(
         llm,
@@ -88,10 +107,39 @@ async def create_session(
         check=check,
         max_retries=max_retries,
     )
-    generated = result.value.questions[:n]
+    return GeneratedSession(
+        slots=slots,
+        questions=result.value.questions[:n],
+        prompt_version=template.version,
+        attempts=len(result.attempts),
+    )
+
+
+async def create_session(
+    db: AsyncSession,
+    llm: LLMProvider,
+    vacancy_id: uuid.UUID,
+    n: int,
+    *,
+    max_retries: int = 2,
+) -> TrainingSession:
+    vacancy = await get_vacancy(db, vacancy_id)
+    requirements = vacancy.requirements
+    asked = await asked_questions(db, vacancy.id)
+    asked_by_requirement = Counter(q.requirement_id for q in asked)
+    generated = await generate_questions(
+        llm,
+        profile_of(vacancy),
+        n,
+        asked=[q.text for q in asked],
+        asked_counts=[asked_by_requirement[r.id] for r in requirements],
+        max_retries=max_retries,
+    )
 
     session = TrainingSession(user_id=vacancy.user_id, vacancy_id=vacancy.id)
-    for position, (slot, item) in enumerate(zip(slots, generated, strict=True), start=1):
+    for position, (slot, item) in enumerate(
+        zip(generated.slots, generated.questions, strict=True), start=1
+    ):
         requirement = requirements[slot.requirement_index]
         question = Question(
             requirement_id=requirement.id,
@@ -99,14 +147,14 @@ async def create_session(
             text=item.text,
             key_points=list(item.key_points),
             gen_model=llm.model,
-            prompt_version=template.version,
+            prompt_version=generated.prompt_version,
         )
         session.items.append(SessionQuestion(position=position, question=question))
     db.add(session)
     await db.commit()
     log.info(
         "session created",
-        extra={"session_id": str(session.id), "n": n, "attempts": len(result.attempts)},
+        extra={"session_id": str(session.id), "n": n, "attempts": generated.attempts},
     )
     return session
 

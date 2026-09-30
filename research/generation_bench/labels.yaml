@@ -1,0 +1,27 @@
+# Разметка для замера разбора и генерации (002 §13).
+# Тексты вакансий кэшируются в research/data/vacancies/ и в репозиторий не попадают.
+# level — допустимые уровни: явный уровень в заголовке, иначе по требуемому опыту
+# (нет опыта → intern/junior, 1–3 года → middle, 3–6 лет → senior, >6 лет и руководство → lead).
+# has_plus — в тексте есть блок «будет плюсом» / «желательно» / «nice to have».
+
+vacancies:
+  - {id: python_backend, url: "https://hh.ru/vacancy/137966266", level: [middle], lang: ru}
+  - {id: java, url: "https://hh.ru/vacancy/137974891", level: [senior], lang: ru}
+  - {id: frontend_intern, url: "https://hh.ru/vacancy/137942876", level: [intern], lang: ru}
+  - {id: devops, url: "https://hh.ru/vacancy/137908954", level: [senior], lang: ru}
+  - {id: qa_manual, url: "https://hh.ru/vacancy/137898148", level: [middle], lang: ru}
+  - {id: team_lead, url: "https://hh.ru/vacancy/137576159", level: [lead], lang: ru}
+  - {id: dotnet_junior, url: "https://hh.ru/vacancy/137039683", level: [intern, junior], lang: ru}
+  - {id: android, url: "https://hh.ru/vacancy/134498443", level: [senior], lang: ru}
+  - {id: data_engineer, url: "https://hh.ru/vacancy/137979931", level: [middle], lang: ru}
+  - {id: cv_engineer, url: "https://hh.ru/vacancy/136613442", level: [senior], lang: en}
+
+non_vacancies:
+  - {file: resume.txt, kind: resume}
+  - {file: job_seeker_post.txt, kind: resume}
+  - {file: company_about.txt, kind: other}
+  - {file: article.txt, kind: other}
+  - {file: recipe.txt, kind: other}
+  - {file: one_word.txt, kind: other}
+  - {file: chat_message.txt, kind: other}
+  - {file: tech_list.txt, kind: other}
