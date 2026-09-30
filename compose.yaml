@@ -1,0 +1,52 @@
+name: sobesnik
+
+x-app: &app
+  env_file:
+    - path: .env
+      required: false
+  extra_hosts:
+    # На Mac имя есть и так; на Linux его нужно пробросить явно.
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: sobesnik
+      POSTGRES_PASSWORD: sobesnik
+      POSTGRES_DB: sobesnik
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sobesnik -d sobesnik"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    <<: *app
+    build:
+      context: .
+      target: runtime
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  # Тесты, линтеры, CLI: docker compose run --rm tools uv run pytest
+  tools:
+    <<: *app
+    build:
+      context: .
+      target: dev
+    profiles: ["tools"]
+    volumes:
+      - .:/app
+    environment:
+      LLM_PROVIDER: fake
+      TEST_DATABASE_URL: postgresql+asyncpg://sobesnik:sobesnik@postgres:5432/sobesnik_test
+
+volumes:
+  pgdata:
