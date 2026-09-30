@@ -34,3 +34,8 @@ node_modules/
 .idea/
 .vscode/
 .DS_Store
+
+# Документы (текст диплома и прочее — вне репозитория)
+*.docx
+*.doc
+~$*
