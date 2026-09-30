@@ -3,7 +3,7 @@ name = "sobesnik-core"
 version = "0.1.0"
 description = "Предметная область Sobesnik: вопросы, рубрики, оценки, прогресс"
 requires-python = ">=3.12,<3.13"
-dependencies = ["pydantic>=2.9"]
+dependencies = ["pydantic>=2.9", "pyyaml>=6.0"]
 
 [build-system]
 requires = ["hatchling"]

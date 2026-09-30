@@ -1,0 +1,192 @@
+# Справочник тем (000 §2, 002 §7). Модель выбирает только листовые темы.
+# Slug темы неизменен: на него ссылаются требования, вопросы и прогресс.
+# Новая тема — просто новая строка; переименование slug — только миграцией.
+
+areas:
+  - slug: python
+    title: Python
+    topics:
+      - {slug: python.data_model, title: "Модель данных: объекты, изменяемость, dunder-методы"}
+      - {slug: python.collections, title: "Встроенные коллекции и сложность операций"}
+      - {slug: python.functions, title: "Функции, замыкания, декораторы"}
+      - {slug: python.iterators, title: "Итераторы, генераторы, контекстные менеджеры"}
+      - {slug: python.oop, title: "ООП в Python: наследование, MRO, дескрипторы, метаклассы"}
+      - {slug: python.asyncio, title: "asyncio и асинхронный код"}
+      - {slug: python.concurrency, title: "GIL, потоки и процессы в Python"}
+      - {slug: python.typing, title: "Аннотации типов и статическая проверка"}
+      - {slug: python.memory, title: "Управление памятью и сборка мусора в CPython"}
+      - {slug: python.web_frameworks, title: "Веб-фреймворки Python: Django, FastAPI, Flask"}
+      - {slug: python.general, title: "Python — общее"}
+
+  - slug: jvm
+    title: Java и JVM
+    topics:
+      - {slug: jvm.core, title: "Java Core: ООП, equals/hashCode, исключения, generics"}
+      - {slug: jvm.collections, title: "Коллекции Java и их устройство"}
+      - {slug: jvm.concurrency, title: "Многопоточность в Java: потоки, synchronized, java.util.concurrent"}
+      - {slug: jvm.memory, title: "Память JVM и сборка мусора"}
+      - {slug: jvm.spring, title: "Spring и Spring Boot"}
+      - {slug: jvm.kotlin, title: "Kotlin: null-safety, корутины, особенности языка"}
+      - {slug: jvm.general, title: "Java и JVM — общее"}
+
+  - slug: go
+    title: Go
+    topics:
+      - {slug: go.concurrency, title: "Горутины, каналы, пакет sync"}
+      - {slug: go.types, title: "Типы Go: структуры, интерфейсы, обработка ошибок"}
+      - {slug: go.runtime, title: "Рантайм Go: планировщик, память, GC"}
+      - {slug: go.context, title: "context: отмена и дедлайны"}
+      - {slug: go.general, title: "Go — общее"}
+
+  - slug: frontend
+    title: Фронтенд
+    topics:
+      - {slug: frontend.js_core, title: "JavaScript: замыкания, this, прототипы, типы"}
+      - {slug: frontend.event_loop, title: "Event loop, промисы, async/await"}
+      - {slug: frontend.typescript, title: "TypeScript: система типов"}
+      - {slug: frontend.react, title: "React: рендеринг, хуки, состояние"}
+      - {slug: frontend.frameworks, title: "Vue, Angular и другие фреймворки"}
+      - {slug: frontend.state, title: "Управление состоянием приложения"}
+      - {slug: frontend.browser, title: "Браузер: DOM, рендеринг, производительность страницы"}
+      - {slug: frontend.css, title: "Вёрстка и CSS"}
+      - {slug: frontend.general, title: "Фронтенд — общее"}
+
+  - slug: lang
+    title: Другие языки
+    topics:
+      - {slug: lang.csharp, title: "C# и .NET"}
+      - {slug: lang.cpp, title: "C и C++"}
+      - {slug: lang.php, title: "PHP"}
+      - {slug: lang.rust, title: "Rust"}
+      - {slug: lang.general, title: "Другие языки программирования"}
+
+  - slug: mobile
+    title: Мобильная разработка
+    topics:
+      - {slug: mobile.ios, title: "iOS: Swift, UIKit и SwiftUI, жизненный цикл"}
+      - {slug: mobile.android, title: "Android: компоненты, жизненный цикл, Jetpack"}
+      - {slug: mobile.cross, title: "Кроссплатформенная разработка: Flutter, React Native"}
+      - {slug: mobile.general, title: "Мобильная разработка — общее"}
+
+  - slug: db
+    title: Базы данных
+    topics:
+      - {slug: db.sql, title: "SQL: JOIN, агрегация, подзапросы, оконные функции"}
+      - {slug: db.indexes, title: "Индексы и планы запросов"}
+      - {slug: db.transactions, title: "Транзакции, уровни изоляции, блокировки"}
+      - {slug: db.modeling, title: "Проектирование схемы и нормализация"}
+      - {slug: db.query_optimization, title: "Оптимизация запросов и производительность БД"}
+      - {slug: db.nosql, title: "NoSQL: документные, key-value, колоночные БД"}
+      - {slug: db.scaling, title: "Репликация, шардирование, партиционирование"}
+      - {slug: db.orm, title: "ORM и работа с БД из кода"}
+      - {slug: db.general, title: "Базы данных — общее"}
+
+  - slug: web
+    title: Веб и API
+    topics:
+      - {slug: web.http, title: "HTTP: методы, коды, заголовки, кэширование"}
+      - {slug: web.rest, title: "Проектирование REST API"}
+      - {slug: web.rpc, title: "gRPC и GraphQL"}
+      - {slug: web.auth, title: "Аутентификация и авторизация: сессии, OAuth 2.0, JWT"}
+      - {slug: web.realtime, title: "WebSocket, SSE и long polling"}
+      - {slug: web.general, title: "Веб и API — общее"}
+
+  - slug: arch
+    title: Архитектура
+    topics:
+      - {slug: arch.principles, title: "SOLID, DRY, связность и зацепление"}
+      - {slug: arch.patterns, title: "Паттерны проектирования"}
+      - {slug: arch.microservices, title: "Микросервисы и монолит"}
+      - {slug: arch.messaging, title: "Очереди и брокеры сообщений: Kafka, RabbitMQ"}
+      - {slug: arch.caching, title: "Кэширование: стратегии, инвалидация, Redis"}
+      - {slug: arch.distributed, title: "Распределённые системы: согласованность, CAP, идемпотентность"}
+      - {slug: arch.system_design, title: "Проектирование систем и масштабирование"}
+      - {slug: arch.general, title: "Архитектура — общее"}
+
+  - slug: devops
+    title: DevOps и инфраструктура
+    topics:
+      - {slug: devops.linux, title: "Linux: процессы, файлы, права, диагностика"}
+      - {slug: devops.docker, title: "Docker и контейнеры"}
+      - {slug: devops.kubernetes, title: "Kubernetes"}
+      - {slug: devops.cicd, title: "CI/CD"}
+      - {slug: devops.observability, title: "Наблюдаемость: логи, метрики, трейсинг, алерты"}
+      - {slug: devops.cloud, title: "Облачные платформы"}
+      - {slug: devops.iac, title: "Инфраструктура как код: Terraform, Ansible"}
+      - {slug: devops.proxy, title: "Nginx, балансировка нагрузки, прокси"}
+      - {slug: devops.git, title: "Git: ветки, слияние, rebase"}
+      - {slug: devops.general, title: "DevOps — общее"}
+
+  - slug: testing
+    title: Тестирование
+    topics:
+      - {slug: testing.fundamentals, title: "Виды и уровни тестирования, пирамида тестов"}
+      - {slug: testing.test_design, title: "Тест-дизайн: классы эквивалентности, граничные значения"}
+      - {slug: testing.unit, title: "Юнит-тесты, моки и фикстуры"}
+      - {slug: testing.integration, title: "Интеграционные и end-to-end тесты"}
+      - {slug: testing.automation, title: "Автоматизация тестирования UI и API"}
+      - {slug: testing.performance, title: "Нагрузочное тестирование"}
+      - {slug: testing.general, title: "Тестирование — общее"}
+
+  - slug: security
+    title: Безопасность
+    topics:
+      - {slug: security.web, title: "Уязвимости веб-приложений: OWASP Top 10"}
+      - {slug: security.crypto, title: "Шифрование, хеширование, TLS"}
+      - {slug: security.secrets, title: "Секреты и управление доступом"}
+      - {slug: security.general, title: "Безопасность — общее"}
+
+  - slug: cs
+    title: Основы Computer Science
+    topics:
+      - {slug: cs.algorithms, title: "Алгоритмы и оценка сложности"}
+      - {slug: cs.data_structures, title: "Структуры данных"}
+      - {slug: cs.os, title: "Операционные системы: процессы, потоки, память"}
+      - {slug: cs.networks, title: "Сети: TCP/IP, UDP, DNS"}
+      - {slug: cs.general, title: "Computer Science — общее"}
+
+  - slug: data
+    title: Данные и ML
+    topics:
+      - {slug: data.analysis, title: "Анализ данных и статистика"}
+      - {slug: data.engineering, title: "ETL, хранилища и витрины данных"}
+      - {slug: data.bigdata, title: "Большие данные: Spark, Hadoop"}
+      - {slug: data.bi, title: "BI и визуализация данных"}
+      - {slug: data.ml, title: "Машинное обучение: модели, метрики, переобучение"}
+      - {slug: data.mlops, title: "MLOps: обучение, выкатка и мониторинг моделей"}
+      - {slug: data.general, title: "Данные и ML — общее"}
+
+# Синонимы для нормализации стека: ключ → общепринятое написание.
+stack_aliases:
+  postgres: postgresql
+  pg: postgresql
+  pgsql: postgresql
+  k8s: kubernetes
+  js: javascript
+  ts: typescript
+  golang: go
+  node: node.js
+  nodejs: node.js
+  reactjs: react
+  react.js: react
+  vuejs: vue
+  vue.js: vue
+  ci/cd: ci-cd
+  cicd: ci-cd
+  mongo: mongodb
+  ms sql: mssql
+  ms sql server: mssql
+  sql server: mssql
+  python3: python
+  c sharp: c#
+  dotnet: .net
+  .net core: .net
+  springboot: spring boot
+  spring-boot: spring boot
+  rabbit: rabbitmq
+  elastic: elasticsearch
+  apache kafka: kafka
+  gitlab ci: gitlab-ci
+  google cloud: gcp
+  amazon web services: aws
+  drf: django rest framework

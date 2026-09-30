@@ -1,11 +1,16 @@
-"""Профиль вакансии: то, что модель извлекает из текста вакансии."""
+"""Профиль вакансии: то, что модель извлекает из текста вакансии (002 §8)."""
 
-from typing import Literal
+import copy
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from sobesnik_core.topics import TopicCatalog
+
 Level = Literal["intern", "junior", "middle", "senior", "lead"]
 LEVELS: tuple[Level, ...] = ("intern", "junior", "middle", "senior", "lead")
+
+TextKind = Literal["vacancy", "resume", "other"]
 
 
 class Requirement(BaseModel):
@@ -13,14 +18,83 @@ class Requirement(BaseModel):
 
     text: str = Field(min_length=1, max_length=500)
     is_required: bool
+    topic: str | None = None
+    """Slug листовой темы. В JSON-схеме для модели — обязательный enum справочника."""
 
 
 class VacancyProfile(BaseModel):
-    """Схема ответа модели при разборе вакансии и одновременно её валидатор."""
-
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=1, max_length=200)
     level: Level
     stack: list[str] = Field(min_length=1, max_length=30)
     requirements: list[Requirement] = Field(min_length=1, max_length=15)
+
+
+class ParsedVacancy(BaseModel):
+    """Схема ответа модели при разборе: сначала вид текста, потом профиль."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: TextKind
+    profile: VacancyProfile | None = None
+
+
+def parse_json_schema(catalog: TopicCatalog) -> dict[str, Any]:
+    """JSON Schema разбора, где тема требования — обязательный enum листовых тем."""
+    schema = copy.deepcopy(ParsedVacancy.model_json_schema())
+    requirement = schema["$defs"]["Requirement"]
+    requirement["properties"]["topic"] = {"type": "string", "enum": list(catalog.leaf_slugs)}
+    requirement["required"] = ["text", "is_required", "topic"]
+    return schema
+
+
+def check_parsed(parsed: ParsedVacancy, catalog: TopicCatalog) -> list[str]:
+    """Доменные проверки ответа модели. Пустой список — ответ принят."""
+    if parsed.kind != "vacancy":
+        return []
+    if parsed.profile is None:
+        return ["profile: для kind = vacancy профиль обязателен"]
+    problems = []
+    seen: dict[str, int] = {}
+    for i, req in enumerate(parsed.profile.requirements):
+        if req.topic is None:
+            problems.append(f"profile.requirements.{i}.topic: тема обязательна")
+        elif not catalog.is_leaf(req.topic):
+            problems.append(f"profile.requirements.{i}.topic: темы {req.topic} нет в справочнике")
+        key = " ".join(req.text.lower().split())
+        if key in seen:
+            problems.append(f"profile.requirements.{i}: повторяет требование {seen[key]}")
+        seen.setdefault(key, i)
+    return problems
+
+
+def normalize_stack(stack: list[str], aliases: dict[str, str]) -> list[str]:
+    """Нижний регистр, синонимы, без дублей; порядок сохраняется."""
+    result: list[str] = []
+    for item in stack:
+        name = " ".join(item.strip().lower().split())
+        name = aliases.get(name, name)
+        if name and name not in result:
+            result.append(name)
+    return result
+
+
+def normalize_requirement_text(text: str) -> str:
+    """Заглавная первая буква, если текст начинается со строчной кириллицы.
+
+    Латиницу не трогаем, чтобы не испортить iOS или gRPC.
+    """
+    text = " ".join(text.split())
+    if text[:1] and ("а" <= text[0] <= "я" or text[0] == "ё"):
+        return text[0].upper() + text[1:]
+    return text
+
+
+def normalize_profile(profile: VacancyProfile, catalog: TopicCatalog) -> VacancyProfile:
+    stack = normalize_stack(profile.stack, catalog.stack_aliases) or profile.stack
+    requirements = [
+        r.model_copy(update={"text": normalize_requirement_text(r.text)})
+        for r in profile.requirements
+    ]
+    return profile.model_copy(update={"stack": stack, "requirements": requirements})

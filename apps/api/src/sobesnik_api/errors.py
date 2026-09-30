@@ -3,7 +3,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from sobesnik_llm import LLMError, LLMUnavailableError
+from sobesnik_llm import LLMError, LLMOutputError, LLMUnavailableError
 
 
 class AppError(Exception):
@@ -23,11 +23,30 @@ class NotFoundError(AppError):
         self.code = code
 
 
-class LLMBadOutputError(AppError):
-    """Ответ модели не прошёл валидацию."""
+class UnprocessableError(AppError):
+    """422 с кодом приложения — в отличие от стандартного 422 валидации FastAPI."""
 
-    status_code = 502
-    code = "llm_bad_output"
+    status_code = 422
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+NOT_A_VACANCY_RESUME = (
+    "Похоже на резюме. Пришлите текст вакансии: требования работодателя к кандидату."
+)
+NOT_A_VACANCY_OTHER = (
+    "Не похоже на вакансию. Пришлите текст вакансии целиком: должность, требования, стек."
+)
+URL_UNREADABLE = (
+    "Не получилось прочитать вакансию по ссылке. "
+    "Пришлите текст вакансии или сохранённую страницу (.html)."
+)
+URL_NOT_ALLOWED = (
+    "Эту ссылку открыть нельзя. Пришлите текст вакансии или сохранённую страницу (.html)."
+)
+HTML_UNREADABLE = "Не получилось найти вакансию на странице. Пришлите текст вакансии."
 
 
 def error_response(status_code: int, code: str, message: str) -> JSONResponse:
@@ -44,6 +63,10 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(LLMUnavailableError)
     async def llm_unavailable(_: Request, exc: LLMUnavailableError) -> JSONResponse:
         return error_response(503, "llm_unavailable", str(exc))
+
+    @app.exception_handler(LLMOutputError)
+    async def llm_bad_output(_: Request, exc: LLMOutputError) -> JSONResponse:
+        return error_response(502, "llm_bad_output", str(exc))
 
     @app.exception_handler(LLMError)
     async def llm_error(_: Request, exc: LLMError) -> JSONResponse:

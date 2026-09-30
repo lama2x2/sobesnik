@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from sobesnik_api.deps import DB, LLM
+from sobesnik_api.deps import DB, Roles
 
 router = APIRouter(tags=["health"])
 
@@ -18,13 +18,19 @@ async def health(db: DB) -> JSONResponse:
 
 
 @router.get("/health/llm")
-async def health_llm(llm: LLM) -> JSONResponse:
-    result = await llm.health()
+async def health_llm(roles: Roles) -> JSONResponse:
+    results = await roles.health()
+    ok = all(r.ok for r in results.values())
     content = {
-        "status": "ok" if result.ok else "unavailable",
-        "provider": result.provider,
-        "model": result.model,
+        "status": "ok" if ok else "unavailable",
+        "roles": {
+            role: {
+                "ok": r.ok,
+                "provider": r.provider,
+                "model": r.model,
+                "detail": r.detail,
+            }
+            for role, r in results.items()
+        },
     }
-    if not result.ok:
-        content["detail"] = result.detail or ""
-    return JSONResponse(status_code=200 if result.ok else 503, content=content)
+    return JSONResponse(status_code=200 if ok else 503, content=content)

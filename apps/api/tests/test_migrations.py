@@ -31,4 +31,4 @@ async def test_downgrade_and_upgrade_again(
     await run_alembic("upgrade", "head")
     async with engine.connect() as conn:
         version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
-    assert version == "0001"
+    assert version == "0002"

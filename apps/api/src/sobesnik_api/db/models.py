@@ -15,8 +15,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
-    text,
 )
+from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,6 +29,7 @@ def _in(column: str, values: tuple[str, ...]) -> str:
 
 
 QUESTION_SOURCES = ("generated",)
+VACANCY_SOURCES = ("text", "url", "html")
 SESSION_MODES = ("vacancy",)
 SESSION_STATUSES = ("active", "finished")
 
@@ -39,18 +40,37 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
     settings: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, default=dict, server_default=text("'{}'::jsonb")
+        JSONB, default=dict, server_default=sql_text("'{}'::jsonb")
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Topic(Base):
+    """Справочник тем. Источник правды — topics.yaml в sobesnik_core, таблица синхронизируется."""
+
+    __tablename__ = "topic"
+
+    slug: Mapped[str] = mapped_column(Text, primary_key=True)
+    title: Mapped[str] = mapped_column(Text)
+    parent_slug: Mapped[str | None] = mapped_column(ForeignKey("topic.slug", onupdate="CASCADE"))
+
+
+def _topic_fk() -> ForeignKey:
+    return ForeignKey("topic.slug", onupdate="CASCADE")
+
+
 class Vacancy(Base):
     __tablename__ = "vacancy"
-    __table_args__ = (CheckConstraint(_in("level", LEVELS), name="level"),)
+    __table_args__ = (
+        CheckConstraint(_in("level", LEVELS), name="level"),
+        CheckConstraint(_in("source", VACANCY_SOURCES), name="source"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     raw_text: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(Text, default="text", server_default="text")
+    source_url: Mapped[str | None] = mapped_column(Text)
     title: Mapped[str] = mapped_column(Text)
     level: Mapped[str] = mapped_column(Text)
     stack: Mapped[list[str]] = mapped_column(ARRAY(Text))
@@ -75,6 +95,7 @@ class Requirement(Base):
     position: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
     is_required: Mapped[bool] = mapped_column(Boolean)
+    topic_slug: Mapped[str | None] = mapped_column(_topic_fk(), index=True)
 
 
 class Question(Base):
@@ -85,7 +106,11 @@ class Question(Base):
     requirement_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("requirement.id", ondelete="SET NULL"), index=True
     )
+    topic_slug: Mapped[str | None] = mapped_column(_topic_fk(), index=True)
     text: Mapped[str] = mapped_column(Text)
+    key_points: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=sql_text("'[]'::jsonb")
+    )
     source: Mapped[str] = mapped_column(Text, default="generated")
     gen_model: Mapped[str] = mapped_column(Text)
     prompt_version: Mapped[str] = mapped_column(Text)
