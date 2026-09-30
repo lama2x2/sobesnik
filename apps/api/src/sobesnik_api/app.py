@@ -9,7 +9,7 @@ from sobesnik_api.db.session import make_engine, make_sessionmaker
 from sobesnik_api.errors import install_error_handlers
 from sobesnik_api.routes import health, sessions, users, vacancies
 from sobesnik_api.settings import Settings
-from sobesnik_llm import LLMProvider, make_provider
+from sobesnik_llm import LLMConfig, LLMProvider, make_provider
 
 
 def create_app(settings: Settings | None = None, llm: LLMProvider | None = None) -> FastAPI:
@@ -21,11 +21,13 @@ def create_app(settings: Settings | None = None, llm: LLMProvider | None = None)
         engine = make_engine(settings.database_url)
         app.state.sessionmaker = make_sessionmaker(engine)
         provider = llm or make_provider(
-            settings.llm_provider,
-            base_url=settings.llm_base_url,
-            model=settings.llm_model,
-            timeout_s=settings.llm_timeout_s,
-            num_ctx=settings.llm_num_ctx,
+            LLMConfig(
+                provider=settings.llm_provider,
+                base_url=settings.llm_base_url,
+                model=settings.llm_model,
+                timeout_s=settings.llm_timeout_s,
+                num_ctx=settings.llm_num_ctx,
+            )
         )
         app.state.llm = provider
         yield

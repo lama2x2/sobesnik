@@ -39,6 +39,15 @@ class LLMUnavailableError(LLMError):
     """LLM недоступна: нет соединения, таймаут, 5xx или модель не скачана."""
 
 
+class LLMOutputError(LLMError):
+    """Ответ модели так и не прошёл проверку за все попытки."""
+
+    def __init__(self, problems: list[str], *, attempts: int) -> None:
+        super().__init__(f"ответ модели не прошёл проверку за {attempts} попыток")
+        self.problems = problems
+        self.attempts = attempts
+
+
 class LLMProvider(Protocol):
     name: str
     model: str

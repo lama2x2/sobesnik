@@ -1,25 +1,30 @@
-"""Выбор провайдера по настройкам из env."""
-
-from typing import Literal
+"""Выбор провайдера по настройкам."""
 
 from sobesnik_llm.base import LLMProvider
+from sobesnik_llm.config import LLMConfig
 from sobesnik_llm.fake import FakeProvider
 from sobesnik_llm.ollama import OllamaProvider
+from sobesnik_llm.openai_compatible import OpenAICompatibleProvider
 
-ProviderName = Literal["ollama", "fake"]
 
-
-def make_provider(
-    provider: ProviderName,
-    *,
-    base_url: str,
-    model: str,
-    timeout_s: float = 120.0,
-    num_ctx: int | None = None,
-) -> LLMProvider:
-    match provider:
+def make_provider(config: LLMConfig) -> LLMProvider:
+    match config.provider:
         case "ollama":
-            return OllamaProvider(base_url, model, timeout_s=timeout_s, num_ctx=num_ctx)
+            return OllamaProvider(
+                config.base_url,
+                config.model,
+                timeout_s=config.timeout_s,
+                num_ctx=config.num_ctx,
+            )
+        case "openai_compatible":
+            api_key = config.api_key.get_secret_value() if config.api_key else None
+            return OpenAICompatibleProvider(
+                config.base_url,
+                config.model,
+                api_key=api_key,
+                timeout_s=config.timeout_s,
+                structured=config.structured,
+            )
         case "fake":
-            return FakeProvider(model=model)
-    raise ValueError(f"неизвестный провайдер LLM: {provider}")
+            return FakeProvider(model=config.model)
+    raise ValueError(f"неизвестный провайдер LLM: {config.provider}")
