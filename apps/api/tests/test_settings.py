@@ -37,12 +37,14 @@ def test_full_override() -> None:
         llm_gen_api_key=SecretStr("key"),
         llm_gen_model="cloud-model",
         llm_structured="json_object",
+        llm_reasoning_effort="none",
     )
     gen = settings.llm_config("gen")
     assert gen.provider == "openai_compatible"
     assert gen.api_key is not None
     assert gen.api_key.get_secret_value() == "key"
     assert gen.structured == "json_object"
+    assert gen.reasoning_effort == "none"
     assert settings.llm_config("eval").provider == "ollama"
 
 

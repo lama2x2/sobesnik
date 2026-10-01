@@ -74,6 +74,16 @@ async def test_json_object_mode_puts_schema_into_system() -> None:
     assert '"boolean"' in system
 
 
+def test_reasoning_effort_only_when_set() -> None:
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200)))
+    provider = OpenAICompatibleProvider(
+        "http://llm/v1", "m", reasoning_effort="none", client=client
+    )
+    assert provider.build_payload(LLMRequest(system="s", prompt="p"))["reasoning_effort"] == "none"
+    plain = make(lambda _: httpx.Response(200)).build_payload(LLMRequest(system="s", prompt="p"))
+    assert "reasoning_effort" not in plain
+
+
 async def test_without_schema_and_key() -> None:
     seen: list[httpx.Request] = []
 

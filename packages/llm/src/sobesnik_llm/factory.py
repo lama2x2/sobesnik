@@ -24,6 +24,7 @@ def make_provider(config: LLMConfig) -> LLMProvider:
                 api_key=api_key,
                 timeout_s=config.timeout_s,
                 structured=config.structured,
+                reasoning_effort=config.reasoning_effort,
             )
         case "fake":
             return FakeProvider(model=config.model)

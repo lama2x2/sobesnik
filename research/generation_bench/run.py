@@ -1,7 +1,7 @@
 """Замер разбора вакансий и генерации вопросов на живых моделях Ollama (002 §13).
 
     docker compose run --rm tools uv run python research/generation_bench/run.py \\
-        --models qwen3:8b qwen3.5:4b qwen3:1.7b
+        --models qwen3:8b qwen3.5:4b qwen3:1.7b [--quick]
 
 Вызывает те же функции, что и API, но без БД. Результаты — в research/data/generation_bench/:
 calls.csv (по вызову), questions.md (вопросы для ручной проверки), summary.md (сводка).
@@ -401,9 +401,20 @@ async def main() -> None:
     parser.add_argument("--n", type=int, default=5)
     parser.add_argument("--refresh", action="store_true", help="перекачать вакансии")
     parser.add_argument("--fetch-only", action="store_true")
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="1 вакансия, 1 «не вакансия», 3 вопроса — проверка, что всё работает",
+    )
     args = parser.parse_args()
 
     labels = yaml.safe_load((HERE / "labels.yaml").read_text(encoding="utf-8"))
+    if args.quick:
+        labels = {
+            "vacancies": labels["vacancies"][:1],
+            "non_vacancies": labels["non_vacancies"][:1],
+        }
+        args.n = 3
     texts = await load_vacancies(labels, args.refresh)
     for vid, text in texts.items():
         print(f"{vid}: {len(text)} символов, блок «плюсом»: {bool(PLUS_RE.search(text))}")

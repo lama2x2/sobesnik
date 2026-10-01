@@ -59,7 +59,7 @@ docs            архитектура, ADR, спецификации (docs/spec
 Всё запускается через Docker Compose — на машине, кроме Docker, ничего не ставится.
 Python-зависимости и воркспейс монорепо — через **uv** (один `uv.lock` на весь репозиторий).
 
-Первый запуск: `cp deploy/.env.example .env` (необязательно) и `ollama pull qwen3:8b` на хосте.
+Первый запуск: `cp deploy/.env.example .env` (необязательно) и `ollama pull qwen3.5:4b` на хосте.
 
 ```bash
 docker compose up -d --build                       # поднять всё

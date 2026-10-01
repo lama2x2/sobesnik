@@ -20,3 +20,5 @@ class LLMConfig(BaseModel):
     """Только для ollama."""
     structured: StructuredMode = "json_schema"
     """Только для openai_compatible."""
+    reasoning_effort: str | None = None
+    """Только для openai_compatible: `none` выключает рассуждения (нужно для /v1 Ollama)."""

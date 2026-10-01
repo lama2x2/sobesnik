@@ -20,11 +20,12 @@ class Settings(BaseSettings):
     llm_provider: ProviderName = "ollama"
     llm_base_url: str = "http://host.docker.internal:11434"
     llm_api_key: SecretStr | None = None
-    llm_model: str = "qwen3:8b"
+    llm_model: str = "qwen3.5:4b"
     llm_timeout_s: float = 120.0
     llm_num_ctx: int | None = 16384
     llm_structured: StructuredMode = "json_schema"
     llm_max_retries: int = 2
+    llm_reasoning_effort: str | None = None
 
     llm_gen_provider: ProviderName | None = None
     llm_gen_base_url: str | None = None
@@ -43,6 +44,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "llm_api_key",
+        "llm_reasoning_effort",
         "llm_gen_provider",
         "llm_gen_base_url",
         "llm_gen_api_key",
@@ -71,4 +73,5 @@ class Settings(BaseSettings):
             timeout_s=self.llm_timeout_s,
             num_ctx=self.llm_num_ctx,
             structured=self.llm_structured,
+            reasoning_effort=self.llm_reasoning_effort,
         )

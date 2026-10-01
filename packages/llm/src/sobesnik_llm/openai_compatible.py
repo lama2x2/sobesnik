@@ -24,10 +24,12 @@ class OpenAICompatibleProvider:
         api_key: str | None = None,
         timeout_s: float = 120.0,
         structured: StructuredMode = "json_schema",
+        reasoning_effort: str | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.model = model
         self._structured = structured
+        self._reasoning_effort = reasoning_effort
         self._client = client or httpx.AsyncClient()
         self._base_url = base_url.rstrip("/")
         self._timeout = httpx.Timeout(timeout_s, connect=5.0)
@@ -47,6 +49,9 @@ class OpenAICompatibleProvider:
             payload["seed"] = request.seed
         if request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
+        if self._reasoning_effort:
+            # Рассуждения съедают время и max_tokens; модели без них параметр не нужен
+            payload["reasoning_effort"] = self._reasoning_effort
         if request.json_schema is not None:
             if self._structured == "json_schema":
                 # strict: false — строгий режим требует, чтобы все поля были required

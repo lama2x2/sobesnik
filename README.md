@@ -36,7 +36,7 @@ Sobesnik устроен иначе:
 Нужны Docker и [Ollama](https://ollama.com). На Mac Ollama ставится на хост: в Docker на Маке нет GPU.
 
 ```bash
-ollama pull qwen3:8b
+ollama pull qwen3.5:4b
 cp deploy/.env.example .env   # необязательно: без .env работают те же значения
 docker compose up -d --build
 curl localhost:8000/api/v1/health/llm

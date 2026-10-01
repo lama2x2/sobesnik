@@ -24,7 +24,7 @@ from sobesnik_llm import (
 pytestmark = pytest.mark.ollama
 
 OLLAMA = os.environ.get("LLM_BASE_URL", "http://host.docker.internal:11434").removesuffix("/v1")
-MODEL = os.environ.get("LLM_MODEL", "qwen3:8b")
+MODEL = os.environ.get("LLM_MODEL", "qwen3.5:4b")
 
 VACANCY = """\
 Middle Python-разработчик в команду платежей.
