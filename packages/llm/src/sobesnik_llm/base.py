@@ -12,6 +12,8 @@ class LLMRequest(BaseModel):
     """Схема structured output. Провайдер, который её не поддерживает, может её игнорировать."""
     temperature: float = 0.2
     seed: int | None = None
+    max_tokens: int | None = None
+    """Лимит выходных токенов: зациклившаяся модель не должна генерировать до конца контекста."""
 
 
 class LLMResponse(BaseModel):

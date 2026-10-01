@@ -30,6 +30,7 @@ from sobesnik_core.questions import GeneratedQuestions
 from sobesnik_core.topics import load_topics
 from sobesnik_llm import (
     LLMConfig,
+    LLMError,
     LLMHealth,
     LLMOutputError,
     LLMProvider,
@@ -106,6 +107,12 @@ async def load_vacancies(labels: dict[str, Any], refresh: bool) -> dict[str, str
     return texts
 
 
+def failure(exc: Exception) -> str:
+    if isinstance(exc, LLMOutputError):
+        return f"LLMOutputError: {exc.problems[:3]}"
+    return f"{type(exc).__name__}: {exc}"
+
+
 def usage(responses: list[LLMResponse]) -> tuple[int, int]:
     return (
         sum(r.tokens_in or 0 for r in responses),
@@ -154,7 +161,7 @@ async def bench_model(
         started = time.perf_counter()
         try:
             parsed = await parse_vacancy(llm, texts[vid])
-        except (UnprocessableError, LLMOutputError) as exc:
+        except (UnprocessableError, LLMError) as exc:
             responses = llm.take()
             calls.append(
                 Call(
@@ -165,15 +172,16 @@ async def bench_model(
                     time.perf_counter() - started,
                     len(responses),
                     *usage(responses),
-                    detail=f"{type(exc).__name__}: {exc}",
+                    detail=failure(exc),
                 )
             )
-            print(f"  {vid}: разбор не удался — {exc}")
+            print(f"  {vid}: разбор не удался — {failure(exc)}")
             continue
         responses = llm.take()
         profile = parsed.profile
         has_plus = bool(PLUS_RE.search(texts[vid]))
         extra: dict[str, Any] = {
+            "repaired_topics": parsed.repaired_topics,
             "level": profile.level,
             "level_ok": profile.level in item["level"],
             "requirements": len(profile.requirements),
@@ -205,7 +213,7 @@ async def bench_model(
         started = time.perf_counter()
         try:
             generated = await generate_questions(llm, profile, n)
-        except LLMOutputError as exc:
+        except LLMError as exc:
             responses = llm.take()
             calls.append(
                 Call(
@@ -216,10 +224,10 @@ async def bench_model(
                     time.perf_counter() - started,
                     len(responses),
                     *usage(responses),
-                    detail=str(exc.problems[:3]),
+                    detail=failure(exc),
                 )
             )
-            print(f"  {vid}: генерация не удалась — {exc.problems[:3]}")
+            print(f"  {vid}: генерация не удалась — {failure(exc)}")
             continue
         responses = llm.take()
         questions = generated.questions
@@ -258,8 +266,8 @@ async def bench_model(
             ok, detail = False, f"принят как вакансия: {parsed.profile.title}"
         except UnprocessableError as exc:
             ok, detail = exc.code == "not_a_vacancy", exc.message
-        except LLMOutputError as exc:
-            ok, detail = False, f"LLMOutputError: {exc.problems[:3]}"
+        except LLMError as exc:
+            ok, detail = False, failure(exc)
         responses = llm.take()
         calls.append(
             Call(
@@ -335,6 +343,10 @@ def summarize(calls: list[Call], models: list[str]) -> str:
             f"{sum(c.extra['general_topics'] for c in ok_parses(cs))}"
             f"/{sum(c.extra['requirements'] for c in ok_parses(cs))}"
         ),
+    )
+    row(
+        "темы починены в `.general`",
+        lambda cs: str(sum(c.extra["repaired_topics"] for c in ok_parses(cs))),
     )
     row(
         "требования со строчной буквы",

@@ -45,6 +45,8 @@ class OpenAICompatibleProvider:
         }
         if request.seed is not None:
             payload["seed"] = request.seed
+        if request.max_tokens is not None:
+            payload["max_tokens"] = request.max_tokens
         if request.json_schema is not None:
             if self._structured == "json_schema":
                 # strict: false — строгий режим требует, чтобы все поля были required

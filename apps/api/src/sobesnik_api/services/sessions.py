@@ -14,6 +14,7 @@ from sobesnik_api.errors import NotFoundError
 from sobesnik_api.services.vacancies import get_vacancy
 from sobesnik_core.checks import question_problems
 from sobesnik_core.generation import questions_prompt
+from sobesnik_core.limits import QUESTION_MAX_TOKENS, QUESTIONS_BASE_MAX_TOKENS
 from sobesnik_core.planning import PlanRequirement, PlanSlot, plan_questions
 from sobesnik_core.prompt import load_prompt
 from sobesnik_core.questions import (
@@ -101,6 +102,7 @@ async def generate_questions(
             prompt=rendered.user,
             temperature=template.temperature,
             seed=template.seed,
+            max_tokens=QUESTIONS_BASE_MAX_TOKENS + QUESTION_MAX_TOKENS * n,
         ),
         GeneratedQuestions,
         json_schema=questions_json_schema(n),

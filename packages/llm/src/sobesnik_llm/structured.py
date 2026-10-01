@@ -69,6 +69,7 @@ async def generate_structured[T: BaseModel](
     schema: type[T],
     *,
     json_schema: dict[str, Any] | None = None,
+    repair: Callable[[T], T] | None = None,
     check: Callable[[T], list[str]] | None = None,
     max_retries: int = 2,
 ) -> StructuredResult[T]:
@@ -76,6 +77,7 @@ async def generate_structured[T: BaseModel](
 
     Модели уходит облегчённая схема (`grammar_schema`), полную проверку делает Pydantic.
 
+    `repair` детерминированно чинит разобранный ответ до проверки (без повтора запроса).
     `check` возвращает список проблем; пустой список — ответ принят. Недоступность провайдера
     и прочие ошибки LLM не повторяются. Тексты промптов и ответов в лог не пишутся.
     """
@@ -98,6 +100,8 @@ async def generate_structured[T: BaseModel](
             problems = _validation_problems(exc)
             error_types = sorted({e["type"] for e in exc.errors(include_input=False)})
         else:
+            if repair:
+                value = repair(value)
             problems = check(value) if check else []
             error_types = ["check"] if problems else []
         log.info(

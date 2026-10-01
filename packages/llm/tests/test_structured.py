@@ -166,3 +166,23 @@ def test_grammar_schema_drops_validator_only_keys() -> None:
         "anyOf": [{"type": "string"}, {"type": "null"}],
     }
     assert "minItems" in str(schema)  # исходная схема не изменена
+
+
+async def test_repair_runs_before_check_without_retry() -> None:
+    llm = FakeProvider([json.dumps({"items": ["a", "bad"]})])
+
+    def repair(answer: Answer) -> Answer:
+        return Answer(items=[i.replace("bad", "b") for i in answer.items])
+
+    def check(answer: Answer) -> list[str]:
+        return ["bad"] if "bad" in answer.items else []
+
+    result = await generate_structured(llm, REQ, Answer, repair=repair, check=check)
+    assert result.value.items == ["a", "b"]
+    assert len(llm.requests) == 1
+
+
+async def test_max_tokens_passed_through() -> None:
+    llm = FakeProvider([GOOD])
+    await generate_structured(llm, REQ.model_copy(update={"max_tokens": 64}), Answer)
+    assert llm.requests[0].max_tokens == 64

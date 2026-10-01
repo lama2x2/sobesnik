@@ -14,7 +14,7 @@ from sobesnik_api.schemas import VacancyCreate, VacancyPatch
 from sobesnik_api.sources.extract import extract_vacancy_text
 from sobesnik_api.sources.fetch import PageFetcher, UrlNotAllowedError, UrlUnreadableError
 from sobesnik_core.generation import parse_prompt
-from sobesnik_core.limits import MIN_VACANCY_CHARS
+from sobesnik_core.limits import MIN_VACANCY_CHARS, PARSE_MAX_TOKENS
 from sobesnik_core.prompt import load_prompt
 from sobesnik_core.topics import load_topics
 from sobesnik_core.vacancy import (
@@ -23,6 +23,8 @@ from sobesnik_core.vacancy import (
     check_parsed,
     normalize_profile,
     parse_json_schema,
+    repair_parsed,
+    repaired_topics,
 )
 from sobesnik_llm import LLMProvider, LLMRequest, generate_structured
 
@@ -42,6 +44,8 @@ class VacancyText:
 class ParseResult:
     profile: VacancyProfile
     prompt_version: str
+    repaired_topics: int = 0
+    """Сколько выдуманных тем заменено на `<область>.general`."""
 
 
 async def resolve_text(body: VacancyCreate, fetcher: PageFetcher) -> VacancyText:
@@ -75,6 +79,14 @@ async def parse_vacancy(llm: LLMProvider, text: str, *, max_retries: int = 2) ->
     catalog = load_topics()
     template = load_prompt(PARSE_PROMPT)
     rendered = parse_prompt(template, catalog, text)
+    repaired = 0
+
+    def repair(parsed: ParsedVacancy) -> ParsedVacancy:
+        nonlocal repaired
+        fixed = repair_parsed(parsed, catalog)
+        repaired = repaired_topics(parsed, fixed)
+        return fixed
+
     result = await generate_structured(
         llm,
         LLMRequest(
@@ -82,20 +94,31 @@ async def parse_vacancy(llm: LLMProvider, text: str, *, max_retries: int = 2) ->
             prompt=rendered.user,
             temperature=template.temperature,
             seed=template.seed,
+            max_tokens=PARSE_MAX_TOKENS,
         ),
         ParsedVacancy,
         json_schema=parse_json_schema(),
+        repair=repair,
         check=lambda parsed: check_parsed(parsed, catalog),
         max_retries=max_retries,
     )
     parsed = result.value
-    log.info("vacancy parsed", extra={"kind": parsed.kind, "attempts": len(result.attempts)})
+    log.info(
+        "vacancy parsed",
+        extra={
+            "kind": parsed.kind,
+            "attempts": len(result.attempts),
+            "repaired_topics": repaired,
+        },
+    )
     if parsed.kind == "resume":
         raise UnprocessableError("not_a_vacancy", errors.NOT_A_VACANCY_RESUME)
     if parsed.kind != "vacancy" or parsed.profile is None:
         raise UnprocessableError("not_a_vacancy", errors.NOT_A_VACANCY_OTHER)
     return ParseResult(
-        profile=normalize_profile(parsed.profile, catalog), prompt_version=template.version
+        profile=normalize_profile(parsed.profile, catalog),
+        prompt_version=template.version,
+        repaired_topics=repaired,
     )
 
 

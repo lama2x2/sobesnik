@@ -31,7 +31,9 @@ async def test_generate_builds_chat_request() -> None:
     provider = make(handler, num_ctx=16384)
     schema = {"type": "object"}
     response = await provider.generate(
-        LLMRequest(system="sys", prompt="hi", json_schema=schema, temperature=0.0, seed=1)
+        LLMRequest(
+            system="sys", prompt="hi", json_schema=schema, temperature=0.0, seed=1, max_tokens=99
+        )
     )
 
     assert str(seen[0].url) == "http://ollama:11434/api/chat"
@@ -44,7 +46,12 @@ async def test_generate_builds_chat_request() -> None:
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "hi"},
     ]
-    assert body["options"] == {"temperature": 0.0, "seed": 1, "num_ctx": 16384}
+    assert body["options"] == {
+        "temperature": 0.0,
+        "seed": 1,
+        "num_ctx": 16384,
+        "num_predict": 99,
+    }
 
     assert response.text == '{"ok": true}'
     assert response.provider == "ollama"

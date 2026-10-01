@@ -87,12 +87,33 @@ async def test_retry_on_bad_output(
     replies: Any,
 ) -> None:
     bad = json.loads(json.dumps(profile))
-    bad["requirements"][0]["topic"] = "python"  # область, а не лист
+    bad["requirements"][0]["topic"] = "misc.python"  # неизвестная область — не чинится
     llm.replies = ["не JSON", replies.parse(bad), replies.parse(profile)]
     response = await post(client, user, text=replies.vacancy_text)
     assert response.status_code == 201, response.text
     assert len(llm.requests) == 3
-    assert "темы python нет в справочнике" in llm.requests[2].prompt
+    assert "темы misc.python нет в справочнике" in llm.requests[2].prompt
+    assert all(r.max_tokens == 2048 for r in llm.requests)
+
+
+@pytest.mark.parametrize(
+    ("invented", "expected"), [("devops.helm", "devops.general"), ("python", "python.general")]
+)
+async def test_invented_topic_of_known_area_repaired_without_retry(
+    client: AsyncClient,
+    llm: FakeProvider,
+    user: dict[str, Any],
+    profile: dict[str, Any],
+    replies: Any,
+    invented: str,
+    expected: str,
+) -> None:
+    profile["requirements"][2]["topic"] = invented
+    llm.replies = [replies.parse(profile)]
+    response = await post(client, user, text=replies.vacancy_text)
+    assert response.status_code == 201, response.text
+    assert len(llm.requests) == 1
+    assert response.json()["requirements"][2]["topic"] == expected
 
 
 @pytest.mark.parametrize(

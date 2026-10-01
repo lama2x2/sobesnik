@@ -11,5 +11,11 @@ QUESTIONS_DEFAULT = 5
 KEY_POINTS_MIN = 3
 KEY_POINTS_MAX = 6
 
+PARSE_MAX_TOKENS = 2048
+"""Лимит выхода модели при разборе вакансии (медиана на замере ~400 токенов)."""
+QUESTIONS_BASE_MAX_TOKENS = 300
+QUESTION_MAX_TOKENS = 300
+"""Лимит выхода при генерации: база плюс столько-то на вопрос."""
+
 ASKED_QUESTIONS_IN_PROMPT = 30
 """Сколько уже заданных по вакансии вопросов передаётся в промпт генерации."""

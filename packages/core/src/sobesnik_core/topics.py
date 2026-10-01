@@ -36,6 +36,21 @@ class TopicCatalog:
     def _leaf_set(self) -> frozenset[str]:
         return frozenset(self.leaf_slugs)
 
+    def is_area(self, slug: str) -> bool:
+        return any(a.slug == slug for a in self.areas)
+
+    def resolve(self, slug: str) -> str:
+        """Слаг листа как есть; выдуманный лист известной области — `<область>.general`.
+
+        Слаг с неизвестной областью возвращается без изменений — его ловит проверка.
+        """
+        if self.is_leaf(slug):
+            return slug
+        area = slug.split(".", 1)[0]
+        if self.is_area(area):
+            return f"{area}.{GENERAL}"
+        return slug
+
     def all(self) -> tuple[Topic, ...]:
         """Области раньше листов: так их можно вставлять в БД по порядку."""
         return self.areas + self.leaves

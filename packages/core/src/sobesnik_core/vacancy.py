@@ -53,6 +53,25 @@ def parse_json_schema() -> dict[str, Any]:
     return schema
 
 
+def repair_parsed(parsed: ParsedVacancy, catalog: TopicCatalog) -> ParsedVacancy:
+    """Чинит выдуманные темы известных областей до проверки (002 §8.1)."""
+    if parsed.profile is None:
+        return parsed
+    requirements = [
+        r.model_copy(update={"topic": catalog.resolve(r.topic)}) if r.topic else r
+        for r in parsed.profile.requirements
+    ]
+    profile = parsed.profile.model_copy(update={"requirements": requirements})
+    return parsed.model_copy(update={"profile": profile})
+
+
+def repaired_topics(before: ParsedVacancy, after: ParsedVacancy) -> int:
+    if before.profile is None or after.profile is None:
+        return 0
+    pairs = zip(before.profile.requirements, after.profile.requirements, strict=True)
+    return sum(a.topic != b.topic for a, b in pairs)
+
+
 def check_parsed(parsed: ParsedVacancy, catalog: TopicCatalog) -> list[str]:
     """Доменные проверки ответа модели. Пустой список — ответ принят."""
     if parsed.kind != "vacancy":
@@ -65,7 +84,11 @@ def check_parsed(parsed: ParsedVacancy, catalog: TopicCatalog) -> list[str]:
         if req.topic is None:
             problems.append(f"profile.requirements.{i}.topic: тема обязательна")
         elif not catalog.is_leaf(req.topic):
-            problems.append(f"profile.requirements.{i}.topic: темы {req.topic} нет в справочнике")
+            areas = ", ".join(a.slug for a in catalog.areas)
+            problems.append(
+                f"profile.requirements.{i}.topic: темы {req.topic} нет в справочнике; "
+                f"бери slug только из списка тем, области: {areas}"
+            )
         key = " ".join(req.text.lower().split())
         if key in seen:
             problems.append(f"profile.requirements.{i}: повторяет требование {seen[key]}")

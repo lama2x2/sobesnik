@@ -39,7 +39,9 @@ async def test_generate_json_schema_mode() -> None:
         return httpx.Response(200, json=COMPLETION)
 
     response = await make(handler).generate(
-        LLMRequest(system="sys", prompt="hi", json_schema=SCHEMA, temperature=0.0, seed=3)
+        LLMRequest(
+            system="sys", prompt="hi", json_schema=SCHEMA, temperature=0.0, seed=3, max_tokens=50
+        )
     )
 
     request = seen[0]
@@ -48,7 +50,7 @@ async def test_generate_json_schema_mode() -> None:
     body = json.loads(request.content)
     assert body["model"] == "qwen3:8b"
     assert body["stream"] is False
-    assert (body["temperature"], body["seed"]) == (0.0, 3)
+    assert (body["temperature"], body["seed"], body["max_tokens"]) == (0.0, 3, 50)
     assert body["messages"] == [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "hi"},
@@ -84,6 +86,7 @@ async def test_without_schema_and_key() -> None:
     body = json.loads(seen[0].content)
     assert "response_format" not in body
     assert "seed" not in body
+    assert "max_tokens" not in body
     assert "authorization" not in seen[0].headers
 
 

@@ -42,15 +42,23 @@ docker compose up -d --build
 curl localhost:8000/api/v1/health/llm
 ```
 
-Пока готов только первый срез: API разбирает вакансию и генерирует вопросы.
+Пока готовы разбор вакансии и генерация вопросов. Вакансию можно прислать текстом (`text`),
+ссылкой (`url`, например на hh.ru) или сохранённой HTML-страницей (`html`).
 
 ```bash
 USER_ID=$(curl -s -X PUT localhost:8000/api/v1/users/telegram/1 | jq -r .id)
-VAC=$(jq -n --arg u "$USER_ID" --rawfile t vacancy.txt '{user_id: $u, text: $t}' \
-  | curl -s -X POST localhost:8000/api/v1/vacancies -H 'content-type: application/json' -d @- | jq -r .id)
+VAC=$(curl -s -X POST localhost:8000/api/v1/vacancies -H 'content-type: application/json' \
+  -d "{\"user_id\": \"$USER_ID\", \"url\": \"https://hh.ru/vacancy/137966266\"}" | jq -r .id)
 curl -s -X POST localhost:8000/api/v1/sessions -H 'content-type: application/json' \
   -d "{\"vacancy_id\": \"$VAC\", \"n\": 5}" | jq
 ```
+
+Текст из файла: `jq -n --arg u "$USER_ID" --rawfile t vacancy.txt '{user_id: $u, text: $t}'`
+и тот же `POST /vacancies`.
+
+Вместо Ollama можно подключить любой OpenAI-совместимый API: `LLM_PROVIDER=openai_compatible`,
+`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` в `.env` (примеры — в `deploy/.env.example`).
+Модели для генерации вопросов и для оценки ответов задаются отдельно: `LLM_GEN_*` и `LLM_EVAL_*`.
 
 Документация API — `http://localhost:8000/docs`.
 

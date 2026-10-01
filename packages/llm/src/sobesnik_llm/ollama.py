@@ -35,6 +35,8 @@ class OllamaProvider:
             options["seed"] = request.seed
         if self._num_ctx is not None:
             options["num_ctx"] = self._num_ctx
+        if request.max_tokens is not None:
+            options["num_predict"] = request.max_tokens
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [

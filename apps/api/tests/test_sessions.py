@@ -46,6 +46,7 @@ async def test_create_session_default_n(
     assert request.json_schema is not None
     assert "minItems" not in request.json_schema["properties"]["questions"]  # проверяет Pydantic
     assert request.temperature == 0.7
+    assert request.max_tokens == 300 + 300 * 5
 
     async with engine.connect() as conn:
         rows = (

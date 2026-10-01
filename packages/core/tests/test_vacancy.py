@@ -11,6 +11,8 @@ from sobesnik_core.vacancy import (
     normalize_requirement_text,
     normalize_stack,
     parse_json_schema,
+    repair_parsed,
+    repaired_topics,
 )
 
 VALID = {
@@ -109,6 +111,30 @@ def test_check_topics_and_duplicates() -> None:
     assert "requirements.1.topic" in problems[0]
     assert "requirements.2.topic" in problems[1]
     assert "requirements.3" in problems[2]
+
+
+def test_repair_parsed() -> None:
+    before = parsed(
+        [
+            {"text": "SQL", "is_required": True, "topic": "db.sql"},
+            {"text": "Kotlin", "is_required": True, "topic": "lang.kotlin"},
+            {"text": "Что-то", "is_required": True, "topic": "misc.other"},
+            {"text": "Без темы", "is_required": True},
+        ]
+    )
+    after = repair_parsed(before, load_topics())
+    assert after.profile is not None
+    assert [r.topic for r in after.profile.requirements] == [
+        "db.sql",
+        "lang.general",
+        "misc.other",
+        None,
+    ]
+    assert repaired_topics(before, after) == 1
+    problems = check_parsed(after, load_topics())
+    assert len(problems) == 2
+    assert "области: python, jvm" in problems[0]
+    assert repair_parsed(ParsedVacancy(kind="resume"), load_topics()).profile is None
 
 
 def test_normalize_stack() -> None:

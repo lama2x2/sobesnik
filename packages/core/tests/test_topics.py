@@ -35,6 +35,14 @@ def test_package_catalog_is_valid() -> None:
         assert catalog.is_leaf(f"{area.slug}.general")
 
 
+def test_resolve() -> None:
+    catalog = load_topics()
+    assert catalog.resolve("db.indexes") == "db.indexes"
+    assert catalog.resolve("lang.kotlin") == "lang.general"
+    assert catalog.resolve("db") == "db.general"
+    assert catalog.resolve("kotlin.coroutines") == "kotlin.coroutines"
+
+
 def test_package_aliases_point_to_normalized_names() -> None:
     aliases = load_topics().stack_aliases
     assert aliases["k8s"] == "kubernetes"
