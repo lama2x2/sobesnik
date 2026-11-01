@@ -3,7 +3,8 @@ name = "sobesnik-asr"
 version = "0.1.0"
 description = "Распознавание речи и хранилище аудио Sobesnik"
 requires-python = ">=3.12,<3.13"
-dependencies = ["faster-whisper>=1.1", "boto3>=1.35"]
+# av 17+ убрал аргумент metadata_errors, на котором падает faster-whisper 1.2
+dependencies = ["faster-whisper>=1.1", "av>=14,<17", "boto3>=1.35"]
 
 [build-system]
 requires = ["hatchling"]
