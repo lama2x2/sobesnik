@@ -4,6 +4,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -152,9 +153,16 @@ async def latest_transcript(
 
 
 async def add_reference_transcript(
-    db: AsyncSession, answer_id: uuid.UUID, text: str, language: str = "ru"
+    db: AsyncSession,
+    answer_id: uuid.UUID,
+    text: str,
+    language: str = "ru",
+    params: dict[str, Any] | None = None,
 ) -> Transcript:
-    """Ручная расшифровка (`reference`) к аудио голосового ответа (004 §9.2)."""
+    """Эталонная расшифровка (`reference`) к аудио голосового ответа (004 §9.2).
+
+    `params` — откуда она взялась, например `{"from_model": "large-v3"}` (005 §12).
+    """
     answer = await db.get(Answer, answer_id)
     if answer is None:
         raise NotFoundError("answer_not_found", "ответ не найден")
@@ -166,7 +174,9 @@ async def add_reference_transcript(
         raise UnprocessableError(
             "bad_transcript", f"расшифровка — от 1 до {ANSWER_MAX_CHARS} символов"
         )
-    transcript = Transcript(audio_id=audio.id, kind="reference", text=text, language=language)
+    transcript = Transcript(
+        audio_id=audio.id, kind="reference", text=text, language=language, params=params
+    )
     db.add(transcript)
     await db.commit()
     log.info("reference transcript added", extra={"answer_id": str(answer_id)})

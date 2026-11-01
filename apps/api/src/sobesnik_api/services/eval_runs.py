@@ -1,4 +1,4 @@
-"""Прогоны: переоценка набора ответов заданной моделью (EVAL-6, 003 §9.1, 004 §9.1)."""
+"""Прогоны: переоценка набора ответов заданной моделью (EVAL-6, 003 §9.1, 004 §9.1, 005 §8)."""
 
 import logging
 import uuid
@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from sobesnik_api.db.models import Answer, Audio, EvalRun, Evaluation, Transcript
+from sobesnik_api.db.models import Answer, Audio, DatasetItem, EvalRun, Evaluation, Transcript
 from sobesnik_api.errors import ConflictError, NotFoundError
 from sobesnik_api.services.answers import IN_PROGRESS
 from sobesnik_api.services.evaluation import EVAL_PROMPT, EvalConfig, evaluate_and_store
@@ -34,6 +34,7 @@ class RunFilter:
     since: date | None = None
     until: date | None = None
     """Включительно: ответы до конца этого дня (UTC)."""
+    dataset_id: uuid.UUID | None = None
 
     def to_json(self) -> dict[str, str]:
         return {k: str(v) for k, v in self.__dict__.items() if v is not None}
@@ -45,6 +46,7 @@ class RunFilter:
             user_id=uuid.UUID(data["user_id"]) if data.get("user_id") else None,
             since=date.fromisoformat(data["since"]) if data.get("since") else None,
             until=date.fromisoformat(data["until"]) if data.get("until") else None,
+            dataset_id=uuid.UUID(data["dataset_id"]) if data.get("dataset_id") else None,
         )
 
     def conditions(self, transcript_kind: str | None = None) -> list[ColumnElement[bool]]:
@@ -67,6 +69,12 @@ class RunFilter:
         if self.until:
             end = datetime.combine(self.until, time.max, UTC)
             conds.append(Answer.created_at <= end)
+        if self.dataset_id:
+            conds.append(
+                Answer.dataset_item_id.in_(
+                    select(DatasetItem.id).where(DatasetItem.dataset_id == self.dataset_id)
+                )
+            )
         return conds
 
 
@@ -90,7 +98,15 @@ def run_config(run: EvalRun, *, max_retries: int, num_ctx: int | None) -> EvalCo
             f"{run.rubric_version} / {run.prompt_version}, стало "
             f"{rubric.version} / {template.version}. Создайте новый прогон.",
         )
-    return EvalConfig(rubric, template, max_retries, num_ctx)
+    params = run.params or {}
+    return EvalConfig(
+        rubric,
+        template,
+        max_retries,
+        num_ctx,
+        temperature_override=params.get("temperature"),
+        seed_override=params.get("seed"),
+    )
 
 
 async def create_run(
@@ -101,10 +117,15 @@ async def create_run(
     model: str,
     run_filter: RunFilter,
     rubric_number: int | None = None,
+    prompt_number: int | None = None,
     transcript_kind: str | None = None,
+    temperature: float | None = None,
+    seed: int | None = None,
 ) -> EvalRun:
     rubric = load_rubric(rubric_number)
-    template = load_prompt(EVAL_PROMPT)
+    template = load_prompt(EVAL_PROMPT, prompt_number)
+    overrides = {"temperature": temperature, "seed": seed}
+    params = {k: v for k, v in overrides.items() if v is not None} or None
     run = EvalRun(
         name=name,
         provider=provider,
@@ -113,6 +134,7 @@ async def create_run(
         prompt_version=template.version,
         transcript_kind=transcript_kind,
         filter=run_filter.to_json(),
+        params=params,
         status="queued",
     )
     db.add(run)

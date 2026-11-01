@@ -160,3 +160,20 @@ def test_prompt_v2_answer_source(kind: str) -> None:
 def test_prompt_v1_still_renders() -> None:
     rendered = evaluation_prompt(load_prompt("evaluate_answer", 1), RUBRIC, "Q?", [], "A", "voice")
     assert "asr_doubts" not in rendered.system
+
+
+def test_prompt_v3_reference_answer() -> None:
+    template = load_prompt("evaluate_answer", 3)
+    with_ref = evaluation_prompt(template, RUBRIC, "Q?", [], "A", "text", "LIFO structure.")
+    assert "Эталонный ответ" in with_ref.user
+    assert "LIFO structure." in with_ref.user
+    without = evaluation_prompt(template, RUBRIC, "Q?", [], "A", "text", None)
+    assert "Эталонный ответ" not in without.user
+    assert "ответа по существу нет" in template.system  # правило для «не знаю»
+
+
+@pytest.mark.parametrize("number", [1, 2])
+def test_old_prompts_ignore_reference_answer(number: int) -> None:
+    template = load_prompt("evaluate_answer", number)
+    rendered = evaluation_prompt(template, RUBRIC, "Q?", [], "A", "text", "эталон")
+    assert "эталон" not in rendered.user

@@ -1,4 +1,4 @@
-"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7, 004 §7."""
+"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7, 004 §7, 005 §7."""
 
 import uuid
 from datetime import datetime
@@ -30,13 +30,13 @@ def _in(column: str, values: tuple[str, ...]) -> str:
     return f"{column} IN ({', '.join(repr(v) for v in values)})"
 
 
-QUESTION_SOURCES = ("generated",)
+QUESTION_SOURCES = ("generated", "dataset")
 VACANCY_SOURCES = ("text", "url", "html")
 SESSION_MODES = ("vacancy",)
 SESSION_STATUSES = ("active", "finished")
-ANSWER_SOURCES = ("user",)
+ANSWER_SOURCES = ("user", "dataset")
 ANSWER_KINDS = ("text", "voice")
-ANSWER_STATUSES = ("received", "transcribing", "evaluating", "done", "failed")
+ANSWER_STATUSES = ("received", "transcribing", "evaluating", "done", "failed", "imported")
 TRANSCRIPT_KINDS = ("asr", "reference")
 EVALUATION_STATUSES = ("done", "failed")
 EVAL_RUN_STATUSES = ("queued", "running", "done", "failed")
@@ -106,9 +106,48 @@ class Requirement(Base):
     topic_slug: Mapped[str | None] = mapped_column(_topic_fk(), index=True)
 
 
+class Dataset(Base):
+    """Открытый датасет, импортированный из единого JSONL (EVAL-8, 005 §6)."""
+
+    __tablename__ = "dataset"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text, unique=True)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    license: Mapped[str] = mapped_column(Text)
+    lang: Mapped[str] = mapped_column(Text)
+    score_key: Mapped[str | None] = mapped_column(Text)
+    """Какая из `human_scores` основная; None — у датасета нет шкалы."""
+    score_min: Mapped[float | None] = mapped_column(Float)
+    score_max: Mapped[float | None] = mapped_column(Float)
+    synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    """Оценки не человеческие, а известный уровень ответа (005 §5.2)."""
+    note: Mapped[str | None] = mapped_column(Text)
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DatasetItem(Base):
+    """Один ответ датасета с его человеческими оценками."""
+
+    __tablename__ = "dataset_item"
+    __table_args__ = (UniqueConstraint("dataset_id", "external_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("dataset.id", ondelete="CASCADE"))
+    external_id: Mapped[str] = mapped_column(Text)
+    human_scores: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+    dataset: Mapped[Dataset] = relationship(lazy="selectin")
+
+
 class Question(Base):
     __tablename__ = "question"
-    __table_args__ = (CheckConstraint(_in("source", QUESTION_SOURCES), name="source"),)
+    __table_args__ = (
+        CheckConstraint(_in("source", QUESTION_SOURCES), name="source"),
+        UniqueConstraint("dataset_id", "external_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     requirement_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -120,6 +159,12 @@ class Question(Base):
         JSONB, default=list, server_default=sql_text("'[]'::jsonb")
     )
     source: Mapped[str] = mapped_column(Text, default="generated")
+    reference_answer: Mapped[str | None] = mapped_column(Text)
+    """Эталонный ответ из датасета: ориентир оценщику для полноты (000 §9)."""
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset.id", ondelete="CASCADE")
+    )
+    external_id: Mapped[str | None] = mapped_column(Text)
     gen_model: Mapped[str] = mapped_column(Text)
     prompt_version: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -180,6 +225,10 @@ class Answer(Base):
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), index=True)
     source: Mapped[str] = mapped_column(Text, default="user")
+    dataset_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_item.id", ondelete="CASCADE"), unique=True
+    )
+    """Ответ из датасета (`source = dataset`): его оценивают только прогоны (005 §3 п. 2)."""
     kind: Mapped[str] = mapped_column(Text, default="text")
     text: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="received")
@@ -190,6 +239,7 @@ class Answer(Base):
     )
 
     question: Mapped[Question] = relationship(lazy="selectin")
+    dataset_item: Mapped[DatasetItem | None] = relationship(lazy="selectin")
 
 
 class Audio(Base):
@@ -263,6 +313,8 @@ class EvalRun(Base):
     filter: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, server_default=sql_text("'{}'::jsonb")
     )
+    params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    """Переопределённые `temperature` и `seed` (005 §8); None — как в промпте."""
     status: Mapped[str] = mapped_column(Text, default="queued")
     total: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     done: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

@@ -90,10 +90,16 @@ async def _enqueue_evaluation(deps: WorkerDeps, answer_id: uuid.UUID) -> None:
         )
 
 
+def _after_transcription(answer: Answer) -> str:
+    return "imported" if answer.source == "dataset" else "evaluating"
+
+
 async def process_transcription(deps: WorkerDeps, answer_id: uuid.UUID, job_try: int = 1) -> None:
     """Распознаёт голосовой ответ и ставит его оценку в очередь (004 §8.2).
 
-    Сбой распознавания или хранилища — `Retry`; на последней попытке ответ получает `failed`.
+    Ответ из датасета после распознавания получает `imported`: его оценивают только прогоны
+    (005 §7.1). Сбой распознавания или хранилища — `Retry`; на последней попытке ответ получает
+    `failed`.
     """
     settings = deps.settings
     async with deps.sessionmaker() as db:
@@ -103,9 +109,10 @@ async def process_transcription(deps: WorkerDeps, answer_id: uuid.UUID, job_try:
         if answer.status not in ("received", "transcribing"):
             return
         if await latest_transcript(db, answer.id) is not None:  # повторная постановка
-            answer.status, answer.error = "evaluating", None
+            answer.status, answer.error = _after_transcription(answer), None
             await db.commit()
-            await _enqueue_evaluation(deps, answer.id)
+            if answer.status == "evaluating":
+                await _enqueue_evaluation(deps, answer.id)
             return
         audio = await answer_audio(db, answer.id)
         if audio is None or audio.deleted_at is not None:
@@ -165,9 +172,10 @@ async def process_transcription(deps: WorkerDeps, answer_id: uuid.UUID, job_try:
         if not text:  # тишина: бот попросит повторить или ответить текстом
             await _fail(db, answer, "asr_empty")
             return
-        answer.status = "evaluating"
+        answer.status = _after_transcription(answer)
         await db.commit()
-    await _enqueue_evaluation(deps, answer_id)
+    if answer.status == "evaluating":
+        await _enqueue_evaluation(deps, answer_id)
 
 
 async def process_answer(deps: WorkerDeps, answer_id: uuid.UUID, job_try: int = 1) -> None:

@@ -46,16 +46,29 @@ class EvalConfig:
     template: PromptTemplate
     max_retries: int = 2
     num_ctx: int | None = None
+    temperature_override: float | None = None
+    seed_override: int | None = None
+    """Переопределения прогона (005 §8); None — как в промпте."""
 
     @classmethod
     def latest(cls, *, max_retries: int = 2, num_ctx: int | None = None) -> "EvalConfig":
         return cls(load_rubric(), load_prompt(EVAL_PROMPT), max_retries, num_ctx)
 
     @property
+    def temperature(self) -> float:
+        if self.temperature_override is not None:
+            return self.temperature_override
+        return self.template.temperature
+
+    @property
+    def seed(self) -> int | None:
+        return self.seed_override if self.seed_override is not None else self.template.seed
+
+    @property
     def params(self) -> dict[str, Any]:
         return {
-            "temperature": self.template.temperature,
-            "seed": self.template.seed,
+            "temperature": self.temperature,
+            "seed": self.seed,
             "max_tokens": EVAL_MAX_TOKENS,
             "num_ctx": self.num_ctx,
         }
@@ -74,21 +87,22 @@ async def evaluate_answer(
     key_points: Sequence[str],
     answer_text: str,
     kind: AnswerKind = "text",
+    reference_answer: str | None = None,
 ) -> EvaluationResult:
     """Оценка одного ответа без БД. Ошибки LLM пробрасываются.
 
     `kind = voice` — оценивается расшифровка речи: оценщик может отметить сомнения в распознавании.
     """
     rendered = evaluation_prompt(
-        config.template, config.rubric, question, key_points, answer_text, kind
+        config.template, config.rubric, question, key_points, answer_text, kind, reference_answer
     )
     result = await generate_structured(
         llm,
         LLMRequest(
             system=rendered.system,
             prompt=rendered.user,
-            temperature=config.template.temperature,
-            seed=config.template.seed,
+            temperature=config.temperature,
+            seed=config.seed,
             max_tokens=EVAL_MAX_TOKENS,
         ),
         EvaluationOutput,
@@ -153,7 +167,15 @@ async def evaluate_and_store(
     kind: AnswerKind = "voice" if transcript and transcript.kind == "asr" else "text"
     transcript_id = transcript.id if transcript else None
     try:
-        result = await evaluate_answer(llm, config, question.text, question.key_points, text, kind)
+        result = await evaluate_answer(
+            llm,
+            config,
+            question.text,
+            question.key_points,
+            text,
+            kind,
+            question.reference_answer,
+        )
     except LLMUnavailableError:
         raise
     except LLMOutputError as exc:

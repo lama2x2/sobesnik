@@ -1,4 +1,4 @@
-"""Оценка ответа по рубрике (003 §6, 004 §8.6): схема ответа модели, починка, проверка,
+"""Оценка ответа по рубрике (003 §6, 004 §8.6, 005 §10): схема ответа модели, починка, проверка,
 промпт, итог."""
 
 import logging
@@ -138,6 +138,15 @@ def format_key_points(key_points: Sequence[str]) -> str:
     return "\n".join(f"{i}. {point}" for i, point in enumerate(key_points, start=1))
 
 
+def format_reference_answer(reference_answer: str | None) -> str:
+    if not reference_answer or not reference_answer.strip():
+        return ""
+    return (
+        "Эталонный ответ (ориентир для полноты и корректности, не единственно верная "
+        f"формулировка):\n{reference_answer.strip()}\n"
+    )
+
+
 def _strip_tags(text: str) -> str:
     """Ответ не может закрыть блок <answer> раньше времени."""
     return text.replace("</answer>", "").replace("<answer>", "")
@@ -150,13 +159,16 @@ def evaluation_prompt(
     key_points: Sequence[str],
     answer: str,
     kind: AnswerKind = "text",
+    reference_answer: str | None = None,
 ) -> RenderedPrompt:
-    """`$answer_source` нужен промпту v2 и выше; v1 его не использует."""
+    """`$answer_source` нужен промпту v2 и выше, `$reference_answer` — v3 и выше;
+    старые версии их не используют."""
     return template.render(
         answer_source=ANSWER_SOURCES[kind],
         rubric=rubric.render(),
         question=question,
         key_points=format_key_points(key_points),
+        reference_answer=format_reference_answer(reference_answer),
         answer=_strip_tags(answer.strip()),
     )
 

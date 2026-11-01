@@ -1,7 +1,8 @@
-"""Выгрузка оценок в CSV (EVAL-7, 003 §9.2, 004 §9.3): широкий формат — строка на оценку,
+"""Выгрузка оценок в CSV (EVAL-7, 003 §9.2, 004 §9.3, 005 §9): широкий формат — строка на оценку,
 длинный — строка на пару «оценка × критерий». В `answer` — тот текст, который оценивался."""
 
 import csv
+import json
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -11,7 +12,16 @@ from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from sobesnik_api.db.models import Answer, Audio, EvalRun, Evaluation, Question, Transcript
+from sobesnik_api.db.models import (
+    Answer,
+    Audio,
+    Dataset,
+    DatasetItem,
+    EvalRun,
+    Evaluation,
+    Question,
+    Transcript,
+)
 from sobesnik_core.rubric import Criterion, load_rubric
 from sobesnik_core.versioned import version_number
 
@@ -36,6 +46,10 @@ COMMON = [
     "audio_duration_s",
     "reference_answer",
     "human_score",
+    "human_score_max",
+    "dataset",
+    "dataset_item",
+    "human_scores",
     "rubric_version",
     "prompt_version",
     "provider",
@@ -66,6 +80,7 @@ class ExportFilter:
     live: bool = False
     """«Боевые» оценки — без прогона."""
     session_id: uuid.UUID | None = None
+    dataset_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +91,8 @@ class Row:
     run: EvalRun | None
     transcript: Transcript | None = None
     audio: Audio | None = None
+    item: DatasetItem | None = None
+    dataset: Dataset | None = None
 
 
 async def select_rows(db: AsyncSession, export: ExportFilter) -> list[Row]:
@@ -87,18 +104,22 @@ async def select_rows(db: AsyncSession, export: ExportFilter) -> list[Row]:
     conds: list[ColumnElement[bool]] = [or_(*sources)] if sources else []
     if export.session_id:
         conds.append(Answer.session_id == export.session_id)
+    if export.dataset_id:
+        conds.append(DatasetItem.dataset_id == export.dataset_id)
     run = aliased(EvalRun)
     result = await db.execute(
-        select(Evaluation, Answer, Question, run, Transcript, Audio)
+        select(Evaluation, Answer, Question, run, Transcript, Audio, DatasetItem, Dataset)
         .join(Answer, Answer.id == Evaluation.answer_id)
         .join(Question, Question.id == Answer.question_id)
         .outerjoin(run, run.id == Evaluation.eval_run_id)
         .outerjoin(Transcript, Transcript.id == Evaluation.transcript_id)
         .outerjoin(Audio, Audio.answer_id == Answer.id)
+        .outerjoin(DatasetItem, DatasetItem.id == Answer.dataset_item_id)
+        .outerjoin(Dataset, Dataset.id == DatasetItem.dataset_id)
         .where(and_(*conds))
         .order_by(Answer.created_at, Answer.id, Evaluation.created_at, Evaluation.id)
     )
-    return [Row(e, a, q, r, t, au) for e, a, q, r, t, au in result]
+    return [Row(*row) for row in result]
 
 
 def _criteria(rows: Sequence[Row]) -> list[Criterion]:
@@ -121,6 +142,26 @@ def _join(items: Sequence[Any] | None) -> str:
     return LIST_SEPARATOR.join(str(i) for i in items or [])
 
 
+def _human(row: Row) -> dict[str, Any]:
+    item, dataset = row.item, row.dataset
+    if item is None or dataset is None:
+        return {
+            "human_score": "",
+            "human_score_max": "",
+            "dataset": "",
+            "dataset_item": "",
+            "human_scores": "",
+        }
+    score = item.human_scores.get(dataset.score_key) if dataset.score_key else None
+    return {
+        "human_score": "" if score is None else score,
+        "human_score_max": "" if dataset.score_max is None else dataset.score_max,
+        "dataset": dataset.name,
+        "dataset_item": item.external_id,
+        "human_scores": json.dumps(item.human_scores, ensure_ascii=False),
+    }
+
+
 def _common(row: Row) -> dict[str, Any]:
     e, a, q, t = row.evaluation, row.answer, row.question, row.transcript
     feedback = e.feedback or {}
@@ -140,8 +181,8 @@ def _common(row: Row) -> dict[str, Any]:
         "transcript_kind": t.kind if t else "",
         "asr_model": (t.asr_model or "") if t else "",
         "audio_duration_s": row.audio.duration_s if row.audio else "",
-        "reference_answer": "",
-        "human_score": "",
+        "reference_answer": q.reference_answer or "",
+        **_human(row),
         "rubric_version": e.rubric_version,
         "prompt_version": e.prompt_version,
         "provider": e.provider,
