@@ -8,6 +8,7 @@ import random
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -132,3 +133,10 @@ def stratified_sample(
         left -= len(open_buckets)
     chosen = {i for b, indices in buckets.items() for i in indices[: quota[b]]}
     return [item for i, item in enumerate(items) if i in chosen]
+
+
+def dump_jsonl(meta: dict[str, Any], items: Iterable[dict[str, Any]]) -> str:
+    """Текст файла в едином формате: заголовок и строки ответов (для конвертеров research/)."""
+    lines = [json.dumps({"dataset": meta}, ensure_ascii=False)]
+    lines += [json.dumps(item, ensure_ascii=False) for item in items]
+    return "\n".join(lines) + "\n"

@@ -105,6 +105,8 @@ services:
     volumes:
       - .:/app
       - asr-models:/models
+      # кэш Hugging Face хоста только для чтения: whisper large-v3 для эталонных расшифровок (005 §12)
+      - ${HOME}/.cache/huggingface/hub:/hf:ro
     environment:
       LLM_PROVIDER: fake
       ASR_PROVIDER: fake
