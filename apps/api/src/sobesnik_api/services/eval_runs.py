@@ -192,6 +192,11 @@ async def execute_run(
     unavailable_in_row = 0
     error: str | None = None
     async with make_llm(run) as llm:
+        if llm.name != run.provider:  # прогон создают в tools, провайдер знает только воркер
+            async with sessionmaker() as db:
+                stored = await get_run(db, run_id)
+                stored.provider = llm.name
+                await db.commit()
         for answer_id in answer_ids:
             async with sessionmaker() as db:
                 answer = await db.get(Answer, answer_id)

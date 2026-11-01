@@ -47,7 +47,7 @@ async def new_run(
 ) -> EvalRun:
     async with deps.sessionmaker() as db:
         return await create_run(
-            db, name="тест", provider="fake", model=model, run_filter=run_filter or RunFilter()
+            db, name="тест", provider="ollama", model=model, run_filter=run_filter or RunFilter()
         )
 
 
@@ -73,6 +73,7 @@ async def test_run_with_other_model(
 
     run = await reload(deps, run.id)
     assert (run.status, run.total, run.done, run.failed) == ("done", 3, 3, 0)
+    assert run.provider == "fake"  # провайдер записывает воркер
     assert run.finished_at is not None
     assert run_models.opened == ["small"]
     assert len(run_models.providers["small"].requests) == 3

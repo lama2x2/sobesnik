@@ -18,6 +18,7 @@ import httpx
 import yaml
 
 HERE = Path(__file__).resolve().parent
+CACHE = HERE.parents[1] / "research" / "data" / "vacancies"
 
 
 async def main() -> None:
@@ -25,16 +26,23 @@ async def main() -> None:
     parser.add_argument("--api", default="http://api:8000/api/v1")
     parser.add_argument("--limit", type=int, default=None, help="сколько вакансий проверить")
     parser.add_argument("--quick", action="store_true", help="1 вакансия и 1 «не вакансия»")
+    parser.add_argument("--n", type=int, default=None, help="вопросов в сессии (по умолчанию 5)")
+    parser.add_argument(
+        "--timing-only",
+        action="store_true",
+        help="только вакансии и время генерации, без «не вакансий», ссылок и HTML (003 §12)",
+    )
     args = parser.parse_args()
+    n = args.n
     labels = yaml.safe_load((HERE / "labels.yaml").read_text(encoding="utf-8"))
     if args.quick:
         labels = {
             "vacancies": labels["vacancies"][:1],
             "non_vacancies": labels["non_vacancies"][:1],
         }
-        args.n = 3
+        args.n = n or 3
     else:
-        args.n = 5
+        args.n = n or 5
     failures: list[str] = []
     timings: dict[str, list[float]] = {"vacancy": [], "session": []}
 
@@ -48,7 +56,12 @@ async def main() -> None:
 
         for item in labels["vacancies"][: args.limit]:
             started = time.perf_counter()
-            response = await api.post("/vacancies", json={"user_id": user, "url": item["url"]})
+            cached = CACHE / f"{item['id']}.txt"
+            if args.timing_only and cached.exists():  # без сети: вакансию могли снять
+                body = {"user_id": user, "text": cached.read_text(encoding="utf-8")}
+            else:
+                body = {"user_id": user, "url": item["url"]}
+            response = await api.post("/vacancies", json=body)
             timings["vacancy"].append(time.perf_counter() - started)
             if response.status_code != 201:
                 failures.append(
@@ -79,6 +92,8 @@ async def main() -> None:
                 f"разбор {timings['vacancy'][-1]:.0f} с, вопросы {timings['session'][-1]:.0f} с"
             )
 
+        if args.timing_only:
+            labels["non_vacancies"] = []
         for item in labels["non_vacancies"]:
             text = (HERE / "non_vacancies" / item["file"]).read_text(encoding="utf-8")
             response = await api.post("/vacancies", json={"user_id": user, "text": text})
@@ -93,6 +108,8 @@ async def main() -> None:
             "https://hh.ru/vacancy/1": {"url_unreadable"},
             "https://example.com/": {"url_unreadable", "not_a_vacancy"},
         }
+        if args.timing_only:
+            cases = {}
         for url, codes in cases.items():
             response = await api.post("/vacancies", json={"user_id": user, "url": url})
             error = response.json().get("error", {})
@@ -101,14 +118,15 @@ async def main() -> None:
                 failures.append(f"{url}: {response.status_code} {error}")
             print(f"  {url}: {response.status_code} {error.get('code')}")
 
-        first = labels["vacancies"][0]["url"]
-        async with httpx.AsyncClient(timeout=30) as web:
-            html = (await web.get(first, headers={"User-Agent": "Mozilla/5.0"})).text
-        response = await api.post("/vacancies", json={"user_id": user, "html": html})
-        source = response.json().get("source") if response.status_code == 201 else None
-        if source != "html":
-            failures.append(f"html: {response.status_code} {response.text[:200]}")
-        print(f"  сохранённая страница: {response.status_code} source={source}")
+        if not args.timing_only:
+            first = labels["vacancies"][0]["url"]
+            async with httpx.AsyncClient(timeout=30) as web:
+                html = (await web.get(first, headers={"User-Agent": "Mozilla/5.0"})).text
+            response = await api.post("/vacancies", json={"user_id": user, "html": html})
+            source = response.json().get("source") if response.status_code == 201 else None
+            if source != "html":
+                failures.append(f"html: {response.status_code} {response.text[:200]}")
+            print(f"  сохранённая страница: {response.status_code} source={source}")
 
     for name, values in timings.items():
         if values:

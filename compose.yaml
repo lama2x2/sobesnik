@@ -10,6 +10,8 @@ x-app: &app
   depends_on:
     postgres:
       condition: service_healthy
+    redis:
+      condition: service_healthy
 
 services:
   postgres:
@@ -26,6 +28,16 @@ services:
       timeout: 3s
       retries: 30
 
+  # Очередь arq. Без тома: незавершённое воркер подхватывает из БД при старте (003 §8.3).
+  # 7.2 — последняя ветка Redis под BSD-лицензией.
+  redis:
+    image: redis:7.2-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
   api:
     <<: *app
     build:
@@ -33,6 +45,31 @@ services:
       target: runtime
     ports:
       - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=2)"
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  # Оценка ответов и прогоны. Тот же образ, что у api; миграции накатывает api.
+  worker:
+    <<: *app
+    build:
+      context: .
+      target: runtime
+    command: ["arq", "sobesnik_api.worker.WorkerSettings"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   # Тесты, линтеры, CLI: docker compose run --rm tools uv run pytest

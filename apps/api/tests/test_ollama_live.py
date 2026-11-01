@@ -5,6 +5,7 @@ import os
 import pytest
 
 from sobesnik_api.errors import UnprocessableError
+from sobesnik_api.services.evaluation import EvalConfig, evaluate_answer
 from sobesnik_api.services.vacancies import parse_vacancy
 from sobesnik_core.checks import is_experience_question
 from sobesnik_core.generation import questions_prompt
@@ -81,3 +82,30 @@ async def test_resume_rejected() -> None:
         await parse_vacancy(llm, RESUME)
     assert info.value.code == "not_a_vacancy"
     await llm.aclose()
+
+
+EVAL_QUESTION = "Почему составной индекс (a, b) не помогает запросу с условием только по b?"
+EVAL_KEY_POINTS = [
+    "B-tree индекс упорядочен сначала по a, потом по b",
+    "Без условия по a значения b разбросаны по всему индексу",
+    "Нужен отдельный индекс по b или индекс (b, a)",
+]
+GOOD_ANSWER = (
+    "Составной B-tree индекс отсортирован сначала по a и только внутри одинаковых a — по b. "
+    "Если в условии нет a, нужные значения b разбросаны по всему индексу, и спуститься по дереву "
+    "нельзя, остаётся полный просмотр. Поэтому для такого запроса нужен отдельный индекс по b "
+    "или индекс (b, a)."
+)
+
+
+async def test_evaluate_good_and_bad_answer() -> None:
+    llm = provider("ollama")
+    config = EvalConfig.latest(num_ctx=16384)
+    good = await evaluate_answer(llm, config, EVAL_QUESTION, EVAL_KEY_POINTS, GOOD_ANSWER)
+    bad = await evaluate_answer(llm, config, EVAL_QUESTION, EVAL_KEY_POINTS, "Не знаю.")
+    again = await evaluate_answer(llm, config, EVAL_QUESTION, EVAL_KEY_POINTS, "Не знаю.")
+    await llm.aclose()
+
+    assert good.scored.total > bad.scored.total
+    assert good.scored.passed and not bad.scored.passed
+    assert again.scored.scores == bad.scored.scores  # temperature 0 и тот же seed
