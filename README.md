@@ -42,8 +42,8 @@ docker compose up -d --build
 curl localhost:8000/api/v1/health/llm
 ```
 
-Пока готовы разбор вакансии и генерация вопросов. Вакансию можно прислать текстом (`text`),
-ссылкой (`url`, например на hh.ru) или сохранённой HTML-страницей (`html`).
+Пока готовы разбор вакансии, генерация вопросов и оценка текстового ответа. Вакансию можно прислать
+текстом (`text`), ссылкой (`url`, например на hh.ru) или сохранённой HTML-страницей (`html`).
 
 ```bash
 USER_ID=$(curl -s -X PUT localhost:8000/api/v1/users/telegram/1 | jq -r .id)
@@ -55,6 +55,22 @@ curl -s -X POST localhost:8000/api/v1/sessions -H 'content-type: application/jso
 
 Текст из файла: `jq -n --arg u "$USER_ID" --rawfile t vacancy.txt '{user_id: $u, text: $t}'`
 и тот же `POST /vacancies`.
+
+Ответ на вопрос сессии принимается сразу, а оценивает его воркер — через 15–30 секунд у ответа
+появляются баллы по критериям, итог 0–100, упущенные пункты и совет:
+
+```bash
+ANSWER=$(curl -s -X POST localhost:8000/api/v1/sessions/$SESSION/questions/$QUESTION/answer \
+  -H 'content-type: application/json' -d '{"text": "Мой ответ…"}' | jq -r .answer_id)
+curl -s localhost:8000/api/v1/answers/$ANSWER | jq
+```
+
+Переоценить ответы другой моделью и выгрузить оценки в CSV:
+
+```bash
+docker compose run --rm tools uv run sobesnik-cli eval-run create --name small --model qwen3:1.7b --wait
+docker compose run --rm tools uv run sobesnik-cli export --live --run $RUN -o research/data/eval.csv
+```
 
 Вместо Ollama можно подключить любой OpenAI-совместимый API: `LLM_PROVIDER=openai_compatible`,
 `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` в `.env` (примеры — в `deploy/.env.example`).

@@ -1,6 +1,6 @@
 # 003. Оценка текстового ответа по рубрике
 
-Статус: одобрена · 01.11.2026 · спринт 3 ([roadmap](../roadmap.md))
+Статус: одобрена · 01.11.2026 · спринт 3 закрыт, спека сверена с кодом ([roadmap](../roadmap.md))
 
 ## 1. Цель
 
@@ -70,7 +70,10 @@
 ## 4. Структура (что меняется)
 
 ```
+packages/llm/src/sobesnik_llm/
+  base.py                  + LLMOutputError.responses — все отвергнутые ответы (для failed-оценки)
 packages/core/src/sobesnik_core/
+  versioned.py             общий загрузчик файлов v<N>.yaml и версия «номер + хеш» (промпты и рубрики)
   rubrics/v1.yaml          рубрика v1
   rubric.py                Rubric, load_rubric(), total(), passed()
   evaluation.py            схема ответа модели, JSON-схема, repair, check, рендер промпта
@@ -207,11 +210,25 @@ JSON-схему собирает код из рубрики (`evaluation_json_sc
 
 ### 6.3. Вызов
 
-`evaluate_answer(llm, rubric, template, question, key_points, answer_text, *, max_retries) -> EvaluationResult` —
-функция без БД, как `generate_questions` в 002. Внутри `generate_structured` с `max_tokens = EVAL_MAX_TOKENS`
-(1 200 — пять обоснований и совет на русском; уточняется по быстрой проверке). `EvaluationResult` содержит
-`EvaluationOutput`, итог, `passed`, тексты упущенных и неверных пунктов, версии рубрики и промпта, все
-попытки (`LLMResponse`). Тексты ответа и промпта в лог не пишутся.
+```python
+@dataclass(frozen=True)
+class EvalConfig:              # рубрика, промпт и параметры оценки
+    rubric: Rubric
+    template: PromptTemplate
+    max_retries: int = 2
+    num_ctx: int | None = None
+    # EvalConfig.latest() — последние версии; .params — то, что пишется в evaluation.params
+
+async def evaluate_answer(llm, config, question, key_points, answer_text) -> EvaluationResult
+async def evaluate_and_store(db, llm, config, answer, *, run_id=None) -> Evaluation
+```
+
+`evaluate_answer` — функция без БД, как `generate_questions` в 002. Внутри `generate_structured` с
+`max_tokens = EVAL_MAX_TOKENS` (1 200; на живой проверке хватило с первой попытки). `EvaluationResult` содержит
+`ScoredEvaluation` (баллы с обоснованиями, итог, `passed`, тексты упущенных и неверных пунктов, совет) и все
+попытки (`LLMResponse`). `evaluate_and_store` добавляет строку `evaluation` без коммита: `LLMOutputError` и
+прочий `LLMError` превращает в `failed`-оценку, а `LLMUnavailableError` пробрасывает — повтор решает вызывающий.
+Тексты ответа и промпта в лог не пишутся.
 
 ## 7. Данные (миграция `0003`)
 
@@ -247,6 +264,7 @@ JSON-схему собирает код из рубрики (`evaluation_json_sc
 class TaskQueue(Protocol):
     async def enqueue_evaluation(self, answer_id: uuid.UUID) -> None: ...
     async def enqueue_run(self, run_id: uuid.UUID) -> None: ...
+    async def aclose(self) -> None: ...
 ```
 
 `ArqQueue` — реализация на arq, `create_app(..., queue=...)` принимает подмену для тестов. Если Redis недоступен,
@@ -264,7 +282,7 @@ class TaskQueue(Protocol):
 6. `LLMUnavailableError` → повтор задачи через arq `Retry` с паузой 10 с, 30 с, 1 мин, 2 мин
    (`EVAL_MAX_TRIES = 5` попыток, около 4 минут ожидания). Ответ всё это время в `evaluating`.
    Попытки кончились → ответ `failed`, `error = "llm_unavailable"`, оценка не пишется: модель не ответила.
-7. Прочий `LLMError` → ответ `failed`, `error = "llm_error"`, без повтора.
+7. Прочий `LLMError` → `evaluation` со статусом `failed` и `error = "llm_error"`, ответ → `failed`, без повтора.
 
 ### 8.3. Воркер
 
@@ -273,7 +291,10 @@ class TaskQueue(Protocol):
   healthcheck на `/api/v1/health`).
 - `max_jobs = WORKER_MAX_JOBS` (по умолчанию 1): Ollama на Маке всё равно обслуживает запросы по одному,
   параллельные задачи только упираются в таймаут.
-- `job_timeout` — 15 мин для оценки, без ограничения для прогона.
+- Таймаут задачи — 15 мин для оценки и 24 ч для прогона. Задача прогона повторяется arq до 3 раз
+  (например, после падения воркера), уже готовые оценки при этом пропускаются.
+- `keep_result = 0`: arq не хранит результаты задач. Иначе задачу с тем же `job_id` нельзя было бы поставить
+  снова в течение часа, и `restart` прогона не работал бы.
 - При старте воркер ставит в очередь ответы в статусах `received` и `evaluating` (после перезапуска они
   зависли бы навсегда) и прогоны в статусах `queued` и `running`. Повторная постановка безопасна благодаря
   `job_id` и шагу 1 §8.2.
@@ -365,14 +386,15 @@ total, passed}`; `answered`, `evaluated`, `passed`, `avg_total` (по оценё
 
 `research/eval_check/check.py` — через API, как `api_check.py`, но без сети: вакансия берётся из кэша
 `research/data/vacancies/`.
-1. Вакансия → сессия из 2 вопросов.
+1. Вакансия → сессия из 3 вопросов. Отвечает на два, третий остаётся для ручной проверки.
 2. Ответ на первый вопрос — «хороший»: ключевые пункты, связанные в текст. На второй — «Не знаю, не сталкивался».
 3. Ждёт `done`, печатает баллы, итог, упущенные и неверные пункты, задержку и токены.
 4. Проверяет: обе оценки валидны; хороший ответ ≥ 60 и `passed`, «не знаю» < 30 и не `passed`.
 5. Через функции CLI создаёт прогон той же моделью по этой сессии и сверяет баллы с «боевыми»:
    при `temperature 0` и том же `seed` они должны совпасть (критерий roadmap).
 
-Демо переоценки другой моделью — `qwen3:1.7b` (она уже скачана, 1,4 ГБ) на тех же 2 ответах, затем выгрузка CSV.
+Демо переоценки другой моделью — `qwen3:1.7b` (она уже скачана, 1,4 ГБ) на тех же 2 ответах: флаг
+`--other-model qwen3:1.7b`. CSV пишется в `research/data/eval_check/<session_id>.csv`.
 Если маленькая модель не удержит формат, в CSV будут `failed`-оценки с причиной — это тоже результат для спринта 5.
 
 ## 12. Перенесено из спринта 2: время генерации
