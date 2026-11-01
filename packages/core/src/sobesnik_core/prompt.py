@@ -4,16 +4,13 @@
 Версия — номер и первые 8 символов sha256 файла: правка без смены номера видна в данных.
 """
 
-import hashlib
-import re
 from dataclasses import dataclass
-from importlib.resources import files
 from importlib.resources.abc import Traversable
 from string import Template
 
 import yaml
 
-_FILE_RE = re.compile(r"^v(\d+)\.yaml$")
+from sobesnik_core.versioned import file_versions, read_version, resource_dir, version_tag
 
 
 @dataclass(frozen=True)
@@ -41,25 +38,19 @@ class PromptTemplate:
 
 
 def _prompt_dir(name: str) -> Traversable:
-    return files("sobesnik_core").joinpath("prompts", name)
+    return resource_dir("prompts", name)
 
 
 def prompt_versions(name: str) -> list[int]:
-    numbers = []
-    for entry in _prompt_dir(name).iterdir():
-        match = _FILE_RE.match(entry.name)
-        if match:
-            numbers.append(int(match.group(1)))
-    return sorted(numbers)
+    return file_versions(_prompt_dir(name))
 
 
 def parse_prompt(name: str, number: int, raw: bytes) -> PromptTemplate:
     data = yaml.safe_load(raw.decode("utf-8"))
-    digest = hashlib.sha256(raw).hexdigest()[:8]
     seed = data.get("seed")
     return PromptTemplate(
         name=name,
-        version=f"v{number}#{digest}",
+        version=version_tag(number, raw),
         system=data["system"],
         user=data["user"],
         temperature=float(data["temperature"]),
@@ -69,10 +60,5 @@ def parse_prompt(name: str, number: int, raw: bytes) -> PromptTemplate:
 
 def load_prompt(name: str, number: int | None = None) -> PromptTemplate:
     """Промпт `name` версии `number`; без номера — последняя версия."""
-    if number is None:
-        versions = prompt_versions(name)
-        if not versions:
-            raise FileNotFoundError(f"нет версий промпта {name}")
-        number = versions[-1]
-    raw = _prompt_dir(name).joinpath(f"v{number}.yaml").read_bytes()
+    number, raw = read_version(_prompt_dir(name), f"промпт {name}", number)
     return parse_prompt(name, number, raw)

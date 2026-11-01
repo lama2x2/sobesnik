@@ -37,7 +37,7 @@ def test_null_seed() -> None:
     assert parse_prompt("x", 1, RAW.replace(b"seed: 7", b"seed: null")).seed is None
 
 
-@pytest.mark.parametrize("name", ["parse_vacancy", "generate_questions"])
+@pytest.mark.parametrize("name", ["parse_vacancy", "generate_questions", "evaluate_answer"])
 def test_package_prompts_load_latest(name: str) -> None:
     versions = prompt_versions(name)
     assert versions
