@@ -42,7 +42,7 @@ docker compose up -d --build
 curl localhost:8000/api/v1/health/llm
 ```
 
-Пока готовы разбор вакансии, генерация вопросов и оценка текстового ответа. Вакансию можно прислать
+Пока готовы разбор вакансии, генерация вопросов и оценка ответа текстом и голосом. Вакансию можно прислать
 текстом (`text`), ссылкой (`url`, например на hh.ru) или сохранённой HTML-страницей (`html`).
 
 ```bash
@@ -63,6 +63,19 @@ curl -s -X POST localhost:8000/api/v1/sessions -H 'content-type: application/jso
 ANSWER=$(curl -s -X POST localhost:8000/api/v1/sessions/$SESSION/questions/$QUESTION/answer \
   -H 'content-type: application/json' -d '{"text": "Мой ответ…"}' | jq -r .answer_id)
 curl -s localhost:8000/api/v1/answers/$ANSWER | jq
+```
+
+Голосовой ответ — аудиофайл (ogg/opus как у Telegram, webm, mp3, wav, m4a, до 5 минут). Воркер
+распознаёт речь whisper на CPU (минута речи — около 10 с на Mac, модель `small` скачивается
+при первом ответе, ~0,5 ГБ) и оценивает расшифровку. В ответе видно, что распознано, а оценщик
+отмечает места, где мог ошибиться распознаватель. Аудио хранится только у вас и удаляется
+через 30 дней или по запросу:
+
+```bash
+ANSWER=$(curl -s -X POST localhost:8000/api/v1/sessions/$SESSION/questions/$QUESTION/answer/voice \
+  -F file=@answer.ogg | jq -r .answer_id)
+curl -s localhost:8000/api/v1/answers/$ANSWER | jq '{status, transcript: .transcript.text, evaluation}'
+curl -s -X DELETE "localhost:8000/api/v1/users/$USER_ID/data?scope=audio"   # стереть свои записи
 ```
 
 Переоценить ответы другой моделью и выгрузить оценки в CSV:

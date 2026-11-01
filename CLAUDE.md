@@ -75,7 +75,14 @@ docker compose logs -f worker                      # воркер оценки (
 docker compose run --rm tools uv run sobesnik-cli eval-run create --name NAME --model MODEL --wait
 docker compose run --rm tools uv run sobesnik-cli export --live -o research/data/eval.csv
 docker compose run --rm tools uv run python research/eval_check/check.py  # быстрая живая проверка оценки
+docker compose run --rm tools uv run pytest -m asr     # живое распознавание записи из research/data/asr_check
+docker compose run --rm tools uv run python research/asr_check/check.py --asr-only  # замер whisper
+docker compose run --rm tools uv run python research/asr_check/check.py  # голосовой ответ через API
+docker compose run --rm tools uv run sobesnik-cli transcript add ANSWER_ID --file ref.txt
 ```
+
+Тестовые записи — только фрагменты в `research/data/asr_check/` (`research/asr_check/cut.sh` на хосте).
+Модели whisper лежат в томе `asr-models`, хранилище аудио — сервис `s3` (RustFS, S3-совместимый).
 
 После живых прогонов модели выгружаются: `ollama stop <модель>` (Мак 16 ГБ греется).
 

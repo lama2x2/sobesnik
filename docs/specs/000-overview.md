@@ -1,6 +1,6 @@
 # 000. Общая спецификация Sobesnik
 
-Статус: актуальна на 01.11.2026, после спринта 3. Детали реализации — в спеках 001–003.
+Статус: актуальна на 01.11.2026, после спринта 4. Детали реализации — в спеках 001–004.
 
 Документ задаёт рамку: что строим, из каких частей и как поймём, что MVP готов.
 Детальные спеки модулей (`001-…`, `002-…`) пишутся перед стартом соответствующего спринта
@@ -102,16 +102,19 @@ Sobesnik — self-hosted тренажёр технических собесед�
 
 ### 4.3. Ответ и распознавание речи (ANS, ASR)
 - ANS-1. Ответ текстом: до 5 000 символов.
-- ANS-2. Ответ голосом: ogg/opus (Telegram), webm, mp3, wav; до 5 минут.
+- ANS-2. Ответ голосом: ogg/opus (Telegram), webm, mp3, wav, m4a; до 5 минут (004 §3 п. 2).
 - ANS-3. Обработка асинхронная: API сразу отвечает `202` с идентификатором, дальше работает воркер.
   Статусы: `received → transcribing → evaluating → done | failed`. Каждая смена статуса публикуется
   событием в Redis, чтобы интерфейс показывал этап обработки (BOT-6).
-- ASR-1. Аудио сохраняется в S3-совместимое хранилище (MinIO), транскрипт — в БД со ссылкой на аудио.
-- ASR-2. Модель faster-whisper задаётся через env. Язык по умолчанию — `ru`, с автоопределением как запасным вариантом.
+- ASR-1. Аудио сохраняется в S3-совместимое хранилище (RustFS в compose: образы MinIO больше не публикуются,
+  004 §6), транскрипт — в БД со ссылкой на аудио.
+- ASR-2. Модель faster-whisper задаётся через env (по умолчанию `small`). Язык по умолчанию — `ru`,
+  `ASR_LANGUAGE=auto` включает автоопределение.
 - ASR-3. У транскрипта хранятся модель ASR, язык, длительность и средняя уверенность. У одного аудио может быть
   несколько транскриптов разных видов: `asr` и `reference` (эталонная ручная расшифровка).
 - ASR-4. До 3 повторов при сбое. После этого ответ переходит в `failed`, пользователь получает сообщение.
-- ASR-5. Аудио удаляется по TTL (env, по умолчанию 30 дней) и по `/forget`. Аудио и транскрипты не пишутся в логи.
+- ASR-5. Аудио удаляется по TTL (env, по умолчанию 30 дней) и по `/forget`. По TTL удаляется только файл:
+  строка `audio` остаётся с `deleted_at`, транскрипты — до `/forget`. Аудио и транскрипты не пишутся в логи.
 
 ### 4.4. Оценка по рубрике (EVAL)
 - EVAL-1. Оценка выполняется по рубрике (§9) и возвращает баллы по каждому критерию с обоснованием,
@@ -122,6 +125,8 @@ Sobesnik — self-hosted тренажёр технических собесед�
 - EVAL-4. Оценка не изменяется: переоценка создаёт новую запись. Пользователю показывается последняя
   оценка «боевой» конфигурации.
 - EVAL-5. Для голосового ответа оценивается транскрипт. Оценка ссылается на конкретный транскрипт.
+  Оценщик не штрафует за написание терминов кириллицей и отмечает в `asr_doubts` места, где мог ошибиться
+  распознаватель: пользователь видит их рядом с оценкой (004 §8.6).
 - EVAL-6. Прогон (eval run): выбрать набор ответов по фильтру (датасет, сессия, период), модель, рубрику
   и вид транскрипта, затем переоценить пакетно. Прогон можно перезапустить, и уже готовые оценки он пропускает.
 - EVAL-7. Выгрузка оценок в CSV: одна строка на пару «оценка × критерий» или «оценка» (длинный и широкий формат).
@@ -165,7 +170,7 @@ Sobesnik — self-hosted тренажёр технических собесед�
 только через env (`LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`); модели для генерации
 и оценки можно задать раздельно. Тесты облако не требуют.
 
-**Приватность.** Голос и ответы хранятся только в Postgres и MinIO своего инстанса. Ограничение, которое
+**Приватность.** Голос и ответы хранятся только в Postgres и S3-хранилище своего инстанса. Ограничение, которое
 надо честно показывать пользователю: при работе через Telegram голосовое сообщение проходит через серверы
 Telegram. Полностью офлайн-сценарий — веб-кабинет (после MVP).
 
@@ -222,7 +227,7 @@ flowchart TB
         worker[worker\narq: ASR, оценка, прогоны]
         pg[(postgres)]
         redis[(redis\nочередь, события)]
-        minio[(minio\nаудио)]
+        s3[(s3\nаудио, RustFS)]
         tools[tools\npytest, ruff, CLI]
     end
     ollama[Ollama\nна хосте Mac\nили профиль gpu]
@@ -231,11 +236,11 @@ flowchart TB
     bot -->|HTTP| api
     web -.->|HTTP| api
     api --> pg
-    api --> minio
+    api --> s3
     api -->|задачи| redis
     worker --> redis
     worker --> pg
-    worker --> minio
+    worker --> s3
     worker -->|packages/llm| ollama
     worker -.-> cloud
     api -->|packages/llm: разбор, генерация| ollama
@@ -266,10 +271,10 @@ flowchart TB
 | `session` | id, user_id, vacancy_id (null), mode `vacancy\|repeat`, status, created_at, finished_at |
 | `session_question` | session_id, question_id, position |
 | `answer` | id, question_id, session_id (null), user_id (null), source `user\|dataset`, kind `text\|voice`, text (null), status, error (null), created_at, updated_at |
-| `audio` | id, answer_id, s3_key, mime, duration_s, expires_at |
-| `transcript` | id, audio_id, kind `asr\|reference`, text, asr_model (null), language, avg_logprob, created_at |
-| `evaluation` | id, answer_id, transcript_id (null, спринт 4), eval_run_id (null), rubric_version, provider, model, prompt_version, params jsonb, scores jsonb, total, passed, feedback jsonb (missed_points, wrong_points, advice), raw_response, attempts, latency_ms, tokens_in, tokens_out, status `done\|failed`, error, created_at |
-| `eval_run` | id, name, provider, model, rubric_version, prompt_version, transcript_kind (спринт 4), filter jsonb, status, total, done, failed, error, created_at, finished_at |
+| `audio` | id, answer_id (unique), s3_key, mime, size_bytes, duration_s, expires_at, deleted_at |
+| `transcript` | id, audio_id, kind `asr\|reference`, text, language, language_prob, asr_model (null), avg_logprob, latency_ms, params jsonb, created_at |
+| `evaluation` | id, answer_id, transcript_id (null), eval_run_id (null), rubric_version, provider, model, prompt_version, params jsonb, scores jsonb, total, passed, feedback jsonb (missed_points, wrong_points, advice, asr_doubts), raw_response, attempts, latency_ms, tokens_in, tokens_out, status `done\|failed`, error, created_at |
+| `eval_run` | id, name, provider, model, rubric_version, prompt_version, transcript_kind (null — как в бою, `asr`, `reference`), filter jsonb, status, total, done, failed, error, created_at, finished_at |
 | `dataset` | id, name, source_url, license, lang, score_scale, imported_at |
 | `dataset_item` | id, dataset_id, external_id, human_scores jsonb — связывает импортированные вопросы и ответы с исходником |
 | `topic_progress` | user_id, topic_slug, attempts, last_score, avg_last3, is_weak, updated_at |
@@ -289,10 +294,10 @@ flowchart TB
 | `GET /sessions/{id}` | сессия, вопросы, статусы ответов |
 | `POST /sessions/{id}/finish` | завершить, получить сводку |
 | `POST /sessions/{id}/questions/{qid}/answer` | ответ текстом → `202 {answer_id}` |
-| `POST /sessions/{id}/questions/{qid}/answer/voice` | ответ голосом (multipart) → `202 {answer_id}` |
+| `POST /sessions/{id}/questions/{qid}/answer/voice` | ответ голосом (multipart, поле `file`) → `202 {answer_id}` |
 | `GET /answers/{id}` | статус, транскрипт, последняя оценка |
 | `GET /users/{id}/progress` | прогресс по темам, слабые темы, история сессий |
-| `DELETE /users/{id}/data?scope=audio\|all` | `/forget` |
+| `DELETE /users/{id}/data?scope=audio\|all` | `/forget`; `audio` — с спринта 4, `all` — спринт 7 |
 
 Служебные эндпоинты (админ-токен; те же операции доступны через CLI `sobesnik-cli` в `tools`). CLI готов
 с спринта 3, HTTP-эндпоинты и админ-токен появятся в спринте 6:
@@ -360,7 +365,7 @@ flowchart TB
    без изменений кода.
 6. Импортирован хотя бы один открытый датасет. По нему выполнены прогоны минимум трёх моделей Ollama,
    CSV выгружен, и повторный прогон той же конфигурации даёт те же баллы.
-7. `/forget` удаляет аудио из MinIO и транскрипты из БД, что проверено тестом.
+7. `/forget` удаляет аудио из S3-хранилища и транскрипты из БД, что проверено тестом.
 8. `pytest`, `ruff check`, `ruff format --check` и `mypy` зелёные. Юнит-тесты не требуют Ollama, сети и GPU.
 
 ## 12. Допущения
