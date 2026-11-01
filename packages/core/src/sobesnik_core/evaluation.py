@@ -1,8 +1,9 @@
-"""Оценка ответа по рубрике (003 §6): схема ответа модели, починка, проверка, промпт, итог."""
+"""Оценка ответа по рубрике (003 §6, 004 §8.6): схема ответа модели, починка, проверка,
+промпт, итог."""
 
 import logging
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,6 +14,14 @@ from sobesnik_core.rubric import LEVELS, Rubric
 log = logging.getLogger(__name__)
 
 Score = Literal[0, 1, 2, 3]
+AnswerKind = Literal["text", "voice"]
+
+ASR_DOUBTS_MAX = 5
+ASR_DOUBT_MAX_CHARS = 200
+ANSWER_SOURCES: dict[AnswerKind, str] = {
+    "text": "письменный ответ",
+    "voice": "автоматическая расшифровка устного ответа (распознавание речи)",
+}
 
 
 class CriterionScore(BaseModel):
@@ -32,10 +41,15 @@ class EvaluationOutput(BaseModel):
     wrong_points: list[int]
     """Номера ключевых пунктов, которые оценщик считает фактически неверными."""
     advice: str = Field(min_length=1, max_length=600)
+    asr_doubts: list[str] = []
+    """Места, где мог ошибиться распознаватель речи. Только у голосовых ответов (004 §8.6)."""
 
 
-def evaluation_json_schema(rubric: Rubric) -> dict[str, Any]:
-    """JSON Schema для structured output: поле на каждый критерий, `reason` до `score`."""
+def evaluation_json_schema(rubric: Rubric, kind: AnswerKind = "text") -> dict[str, Any]:
+    """JSON Schema для structured output: поле на каждый критерий, `reason` до `score`.
+
+    `asr_doubts` есть только у голосового ответа: у текстового модель не может его выдумать.
+    """
     criterion = {
         "type": "object",
         "properties": {
@@ -45,7 +59,7 @@ def evaluation_json_schema(rubric: Rubric) -> dict[str, Any]:
         "required": ["reason", "score"],
     }
     points = {"type": "array", "items": {"type": "integer"}}
-    return {
+    schema: dict[str, Any] = {
         "type": "object",
         "properties": {
             "scores": {
@@ -60,15 +74,31 @@ def evaluation_json_schema(rubric: Rubric) -> dict[str, Any]:
         },
         "required": ["scores", "missed_points", "wrong_points", "advice"],
     }
+    if kind == "voice":
+        schema["properties"]["asr_doubts"] = {"type": "array", "items": {"type": "string"}}
+        schema["required"].append("asr_doubts")
+    return schema
 
 
 def _clean_points(numbers: Sequence[int], count: int) -> list[int]:
     return sorted({n for n in numbers if 1 <= n <= count})
 
 
-def make_repair(points_count: int) -> Callable[[EvaluationOutput], EvaluationOutput]:
-    """Детерминированная починка номеров пунктов: вне диапазона и дубли выбрасываются,
-    неверные пункты не считаются упущенными."""
+def _clean_doubts(doubts: Sequence[str]) -> list[str]:
+    cleaned: list[str] = []
+    for doubt in doubts:
+        text = " ".join(doubt.split())[:ASR_DOUBT_MAX_CHARS]
+        if text and text not in cleaned:
+            cleaned.append(text)
+    return cleaned[:ASR_DOUBTS_MAX]
+
+
+def make_repair(
+    points_count: int, kind: AnswerKind = "text"
+) -> Callable[[EvaluationOutput], EvaluationOutput]:
+    """Детерминированная починка: номера пунктов вне диапазона и дубли выбрасываются,
+    неверные пункты не считаются упущенными; сомнения в распознавании чистятся и обрезаются,
+    у текстового ответа их нет."""
 
     def repair(output: EvaluationOutput) -> EvaluationOutput:
         wrong = _clean_points(output.wrong_points, points_count)
@@ -76,7 +106,10 @@ def make_repair(points_count: int) -> Callable[[EvaluationOutput], EvaluationOut
         dropped = len(output.missed_points) + len(output.wrong_points) - len(missed) - len(wrong)
         if dropped:
             log.info("evaluation points repaired", extra={"dropped_points": dropped})
-        return output.model_copy(update={"missed_points": missed, "wrong_points": wrong})
+        doubts = _clean_doubts(output.asr_doubts) if kind == "voice" else []
+        return output.model_copy(
+            update={"missed_points": missed, "wrong_points": wrong, "asr_doubts": doubts}
+        )
 
     return repair
 
@@ -114,8 +147,11 @@ def evaluation_prompt(
     question: str,
     key_points: Sequence[str],
     answer: str,
+    kind: AnswerKind = "text",
 ) -> RenderedPrompt:
+    """`$answer_source` нужен промпту v2 и выше; v1 его не использует."""
     return template.render(
+        answer_source=ANSWER_SOURCES[kind],
         rubric=rubric.render(),
         question=question,
         key_points=format_key_points(key_points),
@@ -134,6 +170,7 @@ class ScoredEvaluation:
     missed_points: list[str]
     wrong_points: list[str]
     advice: str
+    asr_doubts: list[str] = field(default_factory=list)
 
 
 def score_evaluation(
@@ -149,4 +186,5 @@ def score_evaluation(
         missed_points=[key_points[n - 1] for n in output.missed_points],
         wrong_points=[key_points[n - 1] for n in output.wrong_points],
         advice=output.advice.strip(),
+        asr_doubts=list(output.asr_doubts),
     )

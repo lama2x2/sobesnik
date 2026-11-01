@@ -120,3 +120,42 @@ def test_prompt_renders() -> None:
 def test_prompt_without_key_points() -> None:
     rendered = evaluation_prompt(load_prompt("evaluate_answer"), RUBRIC, "Q?", [], "A")
     assert "(не заданы" in rendered.user
+
+
+def test_schema_asr_doubts_only_for_voice() -> None:
+    text = evaluation_json_schema(RUBRIC)
+    voice = evaluation_json_schema(RUBRIC, "voice")
+    assert "asr_doubts" not in text["properties"]
+    assert "asr_doubts" not in text["required"]
+    assert voice["properties"]["asr_doubts"] == {"type": "array", "items": {"type": "string"}}
+    assert "asr_doubts" in voice["required"]
+
+
+def test_repair_asr_doubts() -> None:
+    doubts = ["  распознано «асинк»  ", "", "распознано «асинк»"] + [f"п{i}" for i in range(9)]
+    doubts.append("x" * 500)
+    fixed = make_repair(3, "voice")(output(asr_doubts=doubts))
+    assert fixed.asr_doubts == ["распознано «асинк»", "п0", "п1", "п2", "п3"]
+    long = make_repair(3, "voice")(output(asr_doubts=["x" * 500]))
+    assert len(long.asr_doubts[0]) == 200
+    # у текстового ответа сомнений в распознавании не бывает
+    assert make_repair(3)(output(asr_doubts=["что-то"])).asr_doubts == []
+
+
+def test_scored_keeps_asr_doubts() -> None:
+    scored = score_evaluation(RUBRIC, output(asr_doubts=["распознано «кэш»"]), KEY_POINTS)
+    assert scored.asr_doubts == ["распознано «кэш»"]
+
+
+@pytest.mark.parametrize("kind", ["text", "voice"])
+def test_prompt_v2_answer_source(kind: str) -> None:
+    template = load_prompt("evaluate_answer", 2)
+    rendered = evaluation_prompt(template, RUBRIC, "Q?", KEY_POINTS, "A", kind)  # type: ignore[arg-type]
+    expected = "письменный ответ" if kind == "text" else "автоматическая расшифровка"
+    assert f"Вид ответа: {expected}" in rendered.user
+    assert "asr_doubts" in rendered.system
+
+
+def test_prompt_v1_still_renders() -> None:
+    rendered = evaluation_prompt(load_prompt("evaluate_answer", 1), RUBRIC, "Q?", [], "A", "voice")
+    assert "asr_doubts" not in rendered.system
