@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "HTTP API Sobesnik"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "sobesnik-asr",
     "sobesnik-core",
     "sobesnik-llm",
     "alembic>=1.14",
@@ -16,12 +17,14 @@ dependencies = [
     "trafilatura>=2.0",
     "uvicorn[standard]>=0.32",
     "arq>=0.26",
+    "python-multipart>=0.0.18",
 ]
 
 [project.scripts]
 sobesnik-cli = "sobesnik_api.cli:main"
 
 [tool.uv.sources]
+sobesnik-asr = { workspace = true }
 sobesnik-core = { workspace = true }
 sobesnik-llm = { workspace = true }
 

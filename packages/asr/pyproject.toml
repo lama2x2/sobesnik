@@ -1,0 +1,13 @@
+[project]
+name = "sobesnik-asr"
+version = "0.1.0"
+description = "Распознавание речи и хранилище аудио Sobesnik"
+requires-python = ">=3.12,<3.13"
+dependencies = ["faster-whisper>=1.1", "boto3>=1.35"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sobesnik_asr"]

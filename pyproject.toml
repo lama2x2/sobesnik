@@ -3,7 +3,7 @@ name = "sobesnik"
 version = "0.1.0"
 description = "Self-hosted тренажёр технических собеседований"
 requires-python = ">=3.12,<3.13"
-dependencies = ["sobesnik-api", "sobesnik-core", "sobesnik-llm"]
+dependencies = ["sobesnik-api", "sobesnik-asr", "sobesnik-core", "sobesnik-llm"]
 
 [dependency-groups]
 dev = [
@@ -14,16 +14,18 @@ dev = [
     "asyncpg-stubs>=0.30",
     "types-pyyaml>=6.0",
     "lxml-stubs>=0.5",
+    "boto3-stubs[s3]>=1.35",
 ]
 
 [tool.uv]
 package = false
 
 [tool.uv.workspace]
-members = ["apps/api", "packages/core", "packages/llm"]
+members = ["apps/api", "packages/asr", "packages/core", "packages/llm"]
 
 [tool.uv.sources]
 sobesnik-api = { workspace = true }
+sobesnik-asr = { workspace = true }
 sobesnik-core = { workspace = true }
 sobesnik-llm = { workspace = true }
 
@@ -38,23 +40,24 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
 ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["sobesnik_api", "sobesnik_core", "sobesnik_llm"]
+known-first-party = ["sobesnik_api", "sobesnik_asr", "sobesnik_core", "sobesnik_llm"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-mypy_path = ["apps/api/src", "packages/core/src", "packages/llm/src"]
+mypy_path = ["apps/api/src", "packages/asr/src", "packages/core/src", "packages/llm/src"]
 explicit_package_bases = true
 exclude = ["^apps/api/alembic/", "/\\.venv/", "^research/data/"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/core/tests", "packages/llm/tests", "apps/api/tests"]
+testpaths = ["packages/core/tests", "packages/llm/tests", "packages/asr/tests", "apps/api/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
-addopts = "-m 'not ollama and not network' --import-mode=importlib"
+addopts = "-m 'not ollama and not network and not asr' --import-mode=importlib"
 markers = [
     "ollama: живые тесты на реальной Ollama (запуск: pytest -m ollama)",
     "network: живые тесты с загрузкой страниц из интернета (запуск: pytest -m network)",
+    "asr: живые тесты распознавания речи на записях из research/data/asr_check (pytest -m asr)",
 ]

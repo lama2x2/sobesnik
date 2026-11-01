@@ -9,6 +9,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY apps/api/pyproject.toml apps/api/
+COPY packages/asr/pyproject.toml packages/asr/
 COPY packages/core/pyproject.toml packages/core/
 COPY packages/llm/pyproject.toml packages/llm/
 
