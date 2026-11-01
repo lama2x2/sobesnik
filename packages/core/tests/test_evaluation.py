@@ -129,6 +129,7 @@ def test_schema_asr_doubts_only_for_voice() -> None:
     assert "asr_doubts" not in text["required"]
     assert voice["properties"]["asr_doubts"] == {"type": "array", "items": {"type": "string"}}
     assert "asr_doubts" in voice["required"]
+    assert next(iter(voice["properties"])) == "asr_doubts"  # первым: до баллов
 
 
 def test_repair_asr_doubts() -> None:

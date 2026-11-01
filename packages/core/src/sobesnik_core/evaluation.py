@@ -75,8 +75,10 @@ def evaluation_json_schema(rubric: Rubric, kind: AnswerKind = "text") -> dict[st
         "required": ["scores", "missed_points", "wrong_points", "advice"],
     }
     if kind == "voice":
-        schema["properties"]["asr_doubts"] = {"type": "array", "items": {"type": "string"}}
-        schema["required"].append("asr_doubts")
+        # первым полем: модель пишет JSON по порядку и сначала просматривает расшифровку на огрехи
+        doubts = {"type": "array", "items": {"type": "string"}}
+        schema["properties"] = {"asr_doubts": doubts, **schema["properties"]}
+        schema["required"] = ["asr_doubts", *schema["required"]]
     return schema
 
 
