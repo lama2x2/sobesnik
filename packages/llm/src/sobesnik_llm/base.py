@@ -44,10 +44,14 @@ class LLMUnavailableError(LLMError):
 class LLMOutputError(LLMError):
     """Ответ модели так и не прошёл проверку за все попытки."""
 
-    def __init__(self, problems: list[str], *, attempts: int) -> None:
+    def __init__(
+        self, problems: list[str], *, attempts: int, responses: list[LLMResponse] | None = None
+    ) -> None:
         super().__init__(f"ответ модели не прошёл проверку за {attempts} попыток")
         self.problems = problems
         self.attempts = attempts
+        self.responses = responses or []
+        """Все отвергнутые ответы модели: для записи неудачной оценки (003 §7)."""
 
 
 class LLMProvider(Protocol):

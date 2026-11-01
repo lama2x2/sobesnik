@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     llm_eval_api_key: SecretStr | None = None
     llm_eval_model: str | None = None
 
+    # Очередь и воркер (003 §8, §13)
+    redis_url: str = "redis://redis:6379/0"
+    worker_max_jobs: int = 1
+    eval_max_tries: int = 5
+
     fetch_timeout_s: float = 10.0
     fetch_allow_private: bool = False
 

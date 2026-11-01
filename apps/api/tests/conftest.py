@@ -3,7 +3,9 @@
 import asyncio
 import json
 import os
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +22,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from sobesnik_api.app import create_app
 from sobesnik_api.db.base import Base
+from sobesnik_api.db.models import EvalRun
+from sobesnik_api.db.session import make_sessionmaker
 from sobesnik_api.settings import Settings
 from sobesnik_api.sources.fetch import PageFetcher
-from sobesnik_llm import FakeProvider
+from sobesnik_api.worker import WorkerDeps
+from sobesnik_core.rubric import load_rubric
+from sobesnik_llm import FakeProvider, LLMProvider
 
 API_DIR = Path(__file__).resolve().parents[1]
 
@@ -60,6 +66,32 @@ def questions_reply(n: int, prefix: str = "Вопрос") -> str:
                 }
                 for i in range(n)
             ]
+        },
+        ensure_ascii=False,
+    )
+
+
+CRITERIA = load_rubric().ids
+
+
+def eval_reply(
+    scores: list[int] | None = None,
+    *,
+    missed: list[int] | None = None,
+    wrong: list[int] | None = None,
+    advice: str = "Повторите тему.",
+) -> str:
+    """Ответ модели при оценке: баллы по критериям в порядке рубрики."""
+    values = scores or [2] * len(CRITERIA)
+    return json.dumps(
+        {
+            "scores": {
+                cid: {"reason": f"обоснование {cid}", "score": value}
+                for cid, value in zip(CRITERIA, values, strict=True)
+            },
+            "missed_points": missed or [],
+            "wrong_points": wrong or [],
+            "advice": advice,
         },
         ensure_ascii=False,
     )
@@ -197,7 +229,72 @@ class Replies:
     vacancy_text = VACANCY_TEXT
     parse = staticmethod(parse_reply)
     questions = staticmethod(questions_reply)
+    evaluation = staticmethod(eval_reply)
     html = staticmethod(html_page)
+
+
+class FakeQueue:
+    """Очередь без Redis: запоминает поставленные задачи."""
+
+    def __init__(self) -> None:
+        self.evaluations: list[uuid.UUID] = []
+        self.runs: list[uuid.UUID] = []
+        self.broken = False
+
+    async def enqueue_evaluation(self, answer_id: uuid.UUID) -> None:
+        if self.broken:
+            raise ConnectionError("redis недоступен")
+        self.evaluations.append(answer_id)
+
+    async def enqueue_run(self, run_id: uuid.UUID) -> None:
+        if self.broken:
+            raise ConnectionError("redis недоступен")
+        self.runs.append(run_id)
+
+    async def aclose(self) -> None:
+        pass
+
+
+@pytest.fixture
+def queue() -> FakeQueue:
+    return FakeQueue()
+
+
+class RunModels:
+    """Провайдеры прогонов: на каждую модель свой FakeProvider с теми же ответами, что у `llm`."""
+
+    def __init__(self, base: FakeProvider) -> None:
+        self.base = base
+        self.opened: list[str] = []
+        self.providers: dict[str, FakeProvider] = {}
+
+    def provider(self, model: str) -> FakeProvider:
+        if model not in self.providers:
+            self.providers[model] = FakeProvider(model=model)
+        provider = self.providers[model]
+        provider.replies = list(self.base.replies)
+        provider.available = self.base.available
+        return provider
+
+    @asynccontextmanager
+    async def __call__(self, run: EvalRun) -> AsyncIterator[LLMProvider]:
+        self.opened.append(run.model)
+        yield self.base if run.model == self.base.model else self.provider(run.model)
+
+
+@pytest.fixture
+def run_models(llm: FakeProvider) -> RunModels:
+    return RunModels(llm)
+
+
+@pytest.fixture
+def deps(engine: AsyncEngine, llm: FakeProvider, run_models: RunModels) -> WorkerDeps:
+    return WorkerDeps(
+        settings=Settings(eval_max_tries=3),
+        sessionmaker=make_sessionmaker(engine),
+        llm=llm,
+        run_llm=run_models,
+    )
 
 
 @pytest.fixture
@@ -207,9 +304,11 @@ def replies() -> type[Replies]:
 
 @pytest.fixture
 async def app(
-    database_url: str, engine: AsyncEngine, llm: FakeProvider, web: FakeWeb
+    database_url: str, engine: AsyncEngine, llm: FakeProvider, web: FakeWeb, queue: FakeQueue
 ) -> AsyncIterator[FastAPI]:
-    app = create_app(Settings(database_url=database_url), llm=llm, fetcher=web.fetcher())
+    app = create_app(
+        Settings(database_url=database_url), llm=llm, fetcher=web.fetcher(), queue=queue
+    )
     async with app.router.lifespan_context(app):
         yield app
 
@@ -233,6 +332,20 @@ async def user(client: AsyncClient) -> dict[str, Any]:
 async def vacancy(client: AsyncClient, llm: FakeProvider, user: dict[str, Any]) -> dict[str, Any]:
     llm.replies = [parse_reply(PROFILE)]
     response = await client.post("/vacancies", json={"user_id": user["id"], "text": VACANCY_TEXT})
+    assert response.status_code == 201, response.text
+    llm.replies = []
+    llm.requests.clear()
+    data: dict[str, Any] = response.json()
+    return data
+
+
+@pytest.fixture
+async def session(
+    client: AsyncClient, llm: FakeProvider, vacancy: dict[str, Any]
+) -> dict[str, Any]:
+    """Сессия из 3 вопросов, у каждого 3 ключевых пункта."""
+    llm.replies = [questions_reply(3)]
+    response = await client.post("/sessions", json={"vacancy_id": vacancy["id"], "n": 3})
     assert response.status_code == 201, response.text
     llm.replies = []
     llm.requests.clear()

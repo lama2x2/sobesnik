@@ -23,6 +23,14 @@ class NotFoundError(AppError):
         self.code = code
 
 
+class ConflictError(AppError):
+    status_code = 409
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class UnprocessableError(AppError):
     """422 с кодом приложения — в отличие от стандартного 422 валидации FastAPI."""
 

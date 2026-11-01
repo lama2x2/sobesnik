@@ -78,6 +78,7 @@ async def test_exhausted_attempts() -> None:
         await generate_structured(llm, REQ, Answer, max_retries=2)
     assert info.value.attempts == 3
     assert info.value.problems
+    assert [r.text for r in info.value.responses] == ["nope"] * 3
     assert len(llm.requests) == 3
     assert [r.seed for r in llm.requests] == [10, 11, 12]
 

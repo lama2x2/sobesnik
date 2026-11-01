@@ -1,4 +1,4 @@
-"""ORM-модели. Схема — 001-skeleton §7."""
+"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7."""
 
 import uuid
 from datetime import datetime
@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     PrimaryKeyConstraint,
     Text,
@@ -32,6 +33,11 @@ QUESTION_SOURCES = ("generated",)
 VACANCY_SOURCES = ("text", "url", "html")
 SESSION_MODES = ("vacancy",)
 SESSION_STATUSES = ("active", "finished")
+ANSWER_SOURCES = ("user",)
+ANSWER_KINDS = ("text",)
+ANSWER_STATUSES = ("received", "evaluating", "done", "failed")
+EVALUATION_STATUSES = ("done", "failed")
+EVAL_RUN_STATUSES = ("queued", "running", "done", "failed")
 
 
 class User(Base):
@@ -154,3 +160,89 @@ class SessionQuestion(Base):
     position: Mapped[int] = mapped_column(Integer)
 
     question: Mapped[Question] = relationship(lazy="selectin")
+
+
+class Answer(Base):
+    __tablename__ = "answer"
+    __table_args__ = (
+        CheckConstraint(_in("source", ANSWER_SOURCES), name="source"),
+        CheckConstraint(_in("kind", ANSWER_KINDS), name="kind"),
+        CheckConstraint(_in("status", ANSWER_STATUSES), name="status"),
+        Index("ix_answer_session_id_question_id", "session_id", "question_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    question_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("question.id"), index=True)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("session.id", ondelete="CASCADE")
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), index=True)
+    source: Mapped[str] = mapped_column(Text, default="user")
+    kind: Mapped[str] = mapped_column(Text, default="text")
+    text: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="received")
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    question: Mapped[Question] = relationship(lazy="selectin")
+
+
+class EvalRun(Base):
+    """Прогон: переоценка набора ответов заданной моделью (EVAL-6)."""
+
+    __tablename__ = "eval_run"
+    __table_args__ = (CheckConstraint(_in("status", EVAL_RUN_STATUSES), name="status"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    rubric_version: Mapped[str] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(Text)
+    filter: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default=sql_text("'{}'::jsonb")
+    )
+    status: Mapped[str] = mapped_column(Text, default="queued")
+    total: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    done: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    failed: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Evaluation(Base):
+    """Оценка ответа. Не изменяется: переоценка добавляет строку (EVAL-4)."""
+
+    __tablename__ = "evaluation"
+    __table_args__ = (CheckConstraint(_in("status", EVALUATION_STATUSES), name="status"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    answer_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("answer.id", ondelete="CASCADE"), index=True
+    )
+    eval_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("eval_run.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(Text)
+    rubric_version: Mapped[str] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    scores: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    """{criterion: {"score": 0–3, "reason": "…"}}."""
+    total: Mapped[int | None] = mapped_column(Integer)
+    passed: Mapped[bool | None] = mapped_column(Boolean)
+    feedback: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    """{"missed_points": [...], "wrong_points": [...], "advice": "…"}."""
+    raw_response: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer)
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    tokens_in: Mapped[int | None] = mapped_column(Integer)
+    tokens_out: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

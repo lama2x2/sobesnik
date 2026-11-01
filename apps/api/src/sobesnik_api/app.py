@@ -8,7 +8,8 @@ from fastapi import APIRouter, FastAPI
 from sobesnik_api.db.session import make_engine, make_sessionmaker
 from sobesnik_api.errors import install_error_handlers
 from sobesnik_api.llm import LLMRoles, make_roles
-from sobesnik_api.routes import health, sessions, users, vacancies
+from sobesnik_api.queue import ArqQueue, TaskQueue
+from sobesnik_api.routes import answers, health, sessions, users, vacancies
 from sobesnik_api.settings import Settings
 from sobesnik_api.sources.fetch import PageFetcher
 from sobesnik_api.topics_sync import sync_topics
@@ -22,8 +23,9 @@ def create_app(
     *,
     llm_eval: LLMProvider | None = None,
     fetcher: PageFetcher | None = None,
+    queue: TaskQueue | None = None,
 ) -> FastAPI:
-    """`llm`, `llm_eval` и `fetcher` передают тесты; без них всё собирается по env.
+    """`llm`, `llm_eval`, `fetcher` и `queue` передают тесты; без них всё собирается по env.
 
     `llm` без `llm_eval` обслуживает обе роли.
     """
@@ -40,16 +42,18 @@ def create_app(
         app.state.fetcher = fetcher or PageFetcher(
             timeout_s=settings.fetch_timeout_s, allow_private=settings.fetch_allow_private
         )
+        app.state.queue = queue or ArqQueue(settings.redis_url)
         app.state.settings = settings
         yield
+        await app.state.queue.aclose()
         await app.state.fetcher.aclose()
         await roles.aclose()
         await engine.dispose()
 
-    app = FastAPI(title="Sobesnik API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Sobesnik API", version="0.3.0", lifespan=lifespan)
     install_error_handlers(app)
     api = APIRouter(prefix="/api/v1")
-    for module in (health, users, vacancies, sessions):
+    for module in (health, users, vacancies, sessions, answers):
         api.include_router(module.router)
     app.include_router(api)
     return app

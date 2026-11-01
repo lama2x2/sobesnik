@@ -120,4 +120,4 @@ async def generate_structured[T: BaseModel](
         )
         if not problems:
             return StructuredResult(value=value, attempts=attempts)
-    raise LLMOutputError(problems, attempts=len(attempts))
+    raise LLMOutputError(problems, attempts=len(attempts), responses=attempts)
