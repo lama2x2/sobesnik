@@ -114,8 +114,8 @@ Sobesnik — self-hosted тренажёр технических собесед�
 - ASR-5. Аудио удаляется по TTL (env, по умолчанию 30 дней) и по `/forget`. Аудио и транскрипты не пишутся в логи.
 
 ### 4.4. Оценка по рубрике (EVAL)
-- EVAL-1. Оценка выполняется по рубрике (§8) и возвращает баллы по каждому критерию с обоснованием,
-  итоговый балл 0–100, список упущенных пунктов и совет.
+- EVAL-1. Оценка выполняется по рубрике (§9) и возвращает баллы по каждому критерию с обоснованием,
+  итоговый балл 0–100, признак «вопрос пройден», список упущенных пунктов и совет.
 - EVAL-2. Ответ модели — JSON по схеме. Невалидный JSON повторяется до 2 раз, дальше оценка получает статус `failed`.
 - EVAL-3. У каждой оценки хранятся версия рубрики, провайдер, модель, версия промпта, параметры генерации
   (temperature, seed), сырой ответ модели, задержка и число токенов.
@@ -263,11 +263,11 @@ flowchart TB
 | `question` | id, topic_slug, requirement_id (null), text, key_points jsonb, reference_answer (null), source `generated\|bank\|dataset`, dataset_item_id (null), gen_model, prompt_version |
 | `session` | id, user_id, vacancy_id (null), mode `vacancy\|repeat`, status, created_at, finished_at |
 | `session_question` | session_id, question_id, position |
-| `answer` | id, question_id, session_id (null), user_id (null), source `user\|dataset`, kind `text\|voice`, text (null), status, created_at |
+| `answer` | id, question_id, session_id (null), user_id (null), source `user\|dataset`, kind `text\|voice`, text (null), status, error (null), created_at, updated_at |
 | `audio` | id, answer_id, s3_key, mime, duration_s, expires_at |
 | `transcript` | id, audio_id, kind `asr\|reference`, text, asr_model (null), language, avg_logprob, created_at |
-| `evaluation` | id, answer_id, transcript_id (null), eval_run_id (null), rubric_version, provider, model, prompt_version, params jsonb, scores jsonb, total, feedback jsonb, raw_response, latency_ms, tokens_in, tokens_out, status, created_at |
-| `eval_run` | id, name, provider, model, rubric_version, transcript_kind, filter jsonb, status, created_at |
+| `evaluation` | id, answer_id, transcript_id (null, спринт 4), eval_run_id (null), rubric_version, provider, model, prompt_version, params jsonb, scores jsonb, total, passed, feedback jsonb (missed_points, wrong_points, advice), raw_response, attempts, latency_ms, tokens_in, tokens_out, status `done\|failed`, error, created_at |
+| `eval_run` | id, name, provider, model, rubric_version, prompt_version, transcript_kind (спринт 4), filter jsonb, status, total, done, failed, error, created_at, finished_at |
 | `dataset` | id, name, source_url, license, lang, score_scale, imported_at |
 | `dataset_item` | id, dataset_id, external_id, human_scores jsonb — связывает импортированные вопросы и ответы с исходником |
 | `topic_progress` | user_id, topic_slug, attempts, last_score, avg_last3, is_weak, updated_at |
@@ -306,7 +306,7 @@ flowchart TB
 
 ## 9. Рубрика v1 (черновик)
 
-Рубрика хранится в `packages/core/rubrics/v1.yaml`. Версия — это номер плюс хеш файла.
+Рубрика хранится в `packages/core/src/sobesnik_core/rubrics/v1.yaml`. Версия — это номер плюс хеш файла.
 Любое изменение текста рубрики — новая версия.
 
 | Критерий | Вес | 0 | 1 | 2 | 3 |
@@ -324,7 +324,9 @@ flowchart TB
   «структуру» и «терминологию», если смысл восстанавливается. Это важно для сравнения оценок
   по эталонной и ASR-транскрипции.
 - Формат ответа модели: для каждого критерия сначала `reason`, потом `score` (0–3). Дальше
-  `missed_points[]` и `advice`. Итог считает код, а не модель.
+  `missed_points[]` и `wrong_points[]` — номера ключевых пунктов (упущенные и, по мнению оценщика, фактически
+  неверные; неверный пункт не считается упущенным), и `advice`. Тексты пунктов подставляет код. Итог и признак
+  «пройден» считает код, а не модель (003 §6).
 - Для сравнения со шкалами датасетов (например 0–5) правило перевода фиксируется в спеке спринта 5.
 
 ## 10. Заделы под проверку качества

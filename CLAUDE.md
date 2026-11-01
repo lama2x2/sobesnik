@@ -71,7 +71,13 @@ docker compose run --rm tools uv run mypy .        # типы
 docker compose run --rm tools uv run pytest -m ollama  # живой тест на Ollama хоста
 docker compose run --rm tools uv run pytest -m network # живая загрузка вакансии с hh.ru
 docker compose run --rm api uv run alembic upgrade head
+docker compose logs -f worker                      # воркер оценки (arq)
+docker compose run --rm tools uv run sobesnik-cli eval-run create --name NAME --model MODEL --wait
+docker compose run --rm tools uv run sobesnik-cli export --live -o research/data/eval.csv
+docker compose run --rm tools uv run python research/eval_check/check.py  # быстрая живая проверка оценки
 ```
+
+После живых прогонов модели выгружаются: `ollama stop <модель>` (Мак 16 ГБ греется).
 
 `tools` — служебный сервис для тестов и линтеров, чтобы не ставить окружение локально
 (профиль `tools`: `up` его не поднимает). Репозиторий смонтирован в `/app`, venv лежит в `/opt/venv`.
