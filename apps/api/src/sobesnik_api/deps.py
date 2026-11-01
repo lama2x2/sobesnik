@@ -1,4 +1,5 @@
-"""Зависимости FastAPI: сессия БД, провайдеры LLM, очередь, загрузчик страниц и настройки."""
+"""Зависимости FastAPI: сессия БД, провайдеры LLM, очередь, хранилище аудио, загрузчик страниц
+и настройки."""
 
 from collections.abc import AsyncIterator
 from typing import Annotated
@@ -10,6 +11,7 @@ from sobesnik_api.llm import LLMRoles
 from sobesnik_api.queue import TaskQueue
 from sobesnik_api.settings import Settings
 from sobesnik_api.sources.fetch import PageFetcher
+from sobesnik_asr import AudioStorage
 from sobesnik_llm import LLMProvider
 
 
@@ -37,6 +39,11 @@ def get_queue(request: Request) -> TaskQueue:
     return queue
 
 
+def get_storage(request: Request) -> AudioStorage:
+    storage: AudioStorage = request.app.state.storage
+    return storage
+
+
 def get_settings(request: Request) -> Settings:
     settings: Settings = request.app.state.settings
     return settings
@@ -48,3 +55,4 @@ Roles = Annotated[LLMRoles, Depends(get_roles)]
 Fetcher = Annotated[PageFetcher, Depends(get_fetcher)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
 Queue = Annotated[TaskQueue, Depends(get_queue)]
+Storage = Annotated[AudioStorage, Depends(get_storage)]

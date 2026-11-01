@@ -1,10 +1,14 @@
+import uuid
+from typing import Literal
+
 from fastapi import APIRouter, Response
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from sobesnik_api.db.models import User
-from sobesnik_api.deps import DB
-from sobesnik_api.schemas import UserOut
+from sobesnik_api.deps import DB, Storage
+from sobesnik_api.schemas import ForgetOut, UserOut
+from sobesnik_api.services.voice import forget_audio
 
 router = APIRouter(tags=["users"])
 
@@ -22,3 +26,14 @@ async def upsert_telegram_user(telegram_id: int, db: DB, response: Response) -> 
     assert user is not None
     response.status_code = 201 if created is not None else 200
     return user
+
+
+@router.delete("/users/{user_id}/data")
+async def forget_user_data(
+    user_id: uuid.UUID, scope: Literal["audio"], db: DB, storage: Storage
+) -> ForgetOut:
+    """Удаляет голосовые записи и их расшифровки (ASR-5, 004 §8.5). `scope=all` — спринт 7."""
+    result = await forget_audio(db, storage, user_id)
+    return ForgetOut(
+        audio_deleted=result.audio_deleted, transcripts_deleted=result.transcripts_deleted
+    )

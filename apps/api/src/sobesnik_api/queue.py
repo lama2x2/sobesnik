@@ -1,4 +1,5 @@
-"""Очередь задач воркера (003 §8.1). API ставит задачи через интерфейс, тесты подменяют его."""
+"""Очередь задач воркера (003 §8.1, 004 §8). API ставит задачи через интерфейс, тесты
+подменяют его."""
 
 import uuid
 from typing import Protocol
@@ -6,11 +7,16 @@ from typing import Protocol
 from arq.connections import ArqRedis, RedisSettings, create_pool
 
 EVALUATE_JOB = "evaluate_answer_job"
+TRANSCRIBE_JOB = "transcribe_answer_job"
 RUN_JOB = "run_eval_job"
 
 
 def evaluation_job_id(answer_id: uuid.UUID) -> str:
     return f"evaluate:{answer_id}"
+
+
+def transcription_job_id(answer_id: uuid.UUID) -> str:
+    return f"transcribe:{answer_id}"
 
 
 def run_job_id(run_id: uuid.UUID) -> str:
@@ -19,6 +25,8 @@ def run_job_id(run_id: uuid.UUID) -> str:
 
 class TaskQueue(Protocol):
     async def enqueue_evaluation(self, answer_id: uuid.UUID) -> None: ...
+
+    async def enqueue_transcription(self, answer_id: uuid.UUID) -> None: ...
 
     async def enqueue_run(self, run_id: uuid.UUID) -> None: ...
 
@@ -51,6 +59,12 @@ class ArqQueue:
     async def enqueue_evaluation(self, answer_id: uuid.UUID) -> None:
         redis = await self._redis()
         await redis.enqueue_job(EVALUATE_JOB, str(answer_id), _job_id=evaluation_job_id(answer_id))
+
+    async def enqueue_transcription(self, answer_id: uuid.UUID) -> None:
+        redis = await self._redis()
+        await redis.enqueue_job(
+            TRANSCRIBE_JOB, str(answer_id), _job_id=transcription_job_id(answer_id)
+        )
 
     async def enqueue_run(self, run_id: uuid.UUID) -> None:
         redis = await self._redis()

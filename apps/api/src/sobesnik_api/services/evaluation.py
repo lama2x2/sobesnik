@@ -1,4 +1,4 @@
-"""Оценка ответа по рубрике (003 §6, §8.2): вызов модели без БД и запись оценки."""
+"""Оценка ответа по рубрике (003 §6, §8.2, 004 §8.3): вызов модели без БД и запись оценки."""
 
 import logging
 import uuid
@@ -9,8 +9,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sobesnik_api.db.models import Answer, Evaluation
+from sobesnik_api.db.models import Answer, Evaluation, Transcript
 from sobesnik_core.evaluation import (
+    AnswerKind,
     EvaluationOutput,
     ScoredEvaluation,
     evaluation_json_schema,
@@ -72,9 +73,15 @@ async def evaluate_answer(
     question: str,
     key_points: Sequence[str],
     answer_text: str,
+    kind: AnswerKind = "text",
 ) -> EvaluationResult:
-    """Оценка одного ответа без БД. Ошибки LLM пробрасываются."""
-    rendered = evaluation_prompt(config.template, config.rubric, question, key_points, answer_text)
+    """Оценка одного ответа без БД. Ошибки LLM пробрасываются.
+
+    `kind = voice` — оценивается расшифровка речи: оценщик может отметить сомнения в распознавании.
+    """
+    rendered = evaluation_prompt(
+        config.template, config.rubric, question, key_points, answer_text, kind
+    )
     result = await generate_structured(
         llm,
         LLMRequest(
@@ -85,8 +92,8 @@ async def evaluate_answer(
             max_tokens=EVAL_MAX_TOKENS,
         ),
         EvaluationOutput,
-        json_schema=evaluation_json_schema(config.rubric),
-        repair=make_repair(len(key_points)),
+        json_schema=evaluation_json_schema(config.rubric, kind),
+        repair=make_repair(len(key_points), kind),
         check=make_check(config.rubric),
         max_retries=config.max_retries,
     )
@@ -105,11 +112,13 @@ def _evaluation_row(
     answer_id: uuid.UUID,
     run_id: uuid.UUID | None,
     attempts: Sequence[LLMResponse],
+    transcript_id: uuid.UUID | None = None,
 ) -> Evaluation:
     last = attempts[-1] if attempts else None
     return Evaluation(
         answer_id=answer_id,
         eval_run_id=run_id,
+        transcript_id=transcript_id,
         rubric_version=config.rubric.version,
         prompt_version=config.template.version,
         provider=last.provider if last else llm.name,
@@ -130,28 +139,32 @@ async def evaluate_and_store(
     answer: Answer,
     *,
     run_id: uuid.UUID | None = None,
+    transcript: Transcript | None = None,
 ) -> Evaluation:
     """Оценивает ответ и добавляет оценку в сессию БД (без коммита).
 
+    С `transcript` оценивается его текст, а оценка ссылается на него (EVAL-5).
     Невалидный ответ модели и прочие ошибки LLM дают оценку со статусом `failed`.
     `LLMUnavailableError` пробрасывается: что делать, решает вызывающий (повтор или сбой прогона).
     """
     question = answer.question
+    text = transcript.text if transcript else answer.text or ""
+    # сомнения в распознавании бывают только у машинной расшифровки, не у ручной
+    kind: AnswerKind = "voice" if transcript and transcript.kind == "asr" else "text"
+    transcript_id = transcript.id if transcript else None
     try:
-        result = await evaluate_answer(
-            llm, config, question.text, question.key_points, answer.text or ""
-        )
+        result = await evaluate_answer(llm, config, question.text, question.key_points, text, kind)
     except LLMUnavailableError:
         raise
     except LLMOutputError as exc:
-        row = _evaluation_row(llm, config, answer.id, run_id, exc.responses)
+        row = _evaluation_row(llm, config, answer.id, run_id, exc.responses, transcript_id)
         row.status, row.error = "failed", "llm_bad_output"
     except LLMError:
-        row = _evaluation_row(llm, config, answer.id, run_id, [])
+        row = _evaluation_row(llm, config, answer.id, run_id, [], transcript_id)
         row.status, row.error = "failed", "llm_error"
     else:
         scored = result.scored
-        row = _evaluation_row(llm, config, answer.id, run_id, result.attempts)
+        row = _evaluation_row(llm, config, answer.id, run_id, result.attempts, transcript_id)
         row.status = "done"
         row.scores = scored.scores
         row.total = scored.total
@@ -160,6 +173,7 @@ async def evaluate_and_store(
             "missed_points": scored.missed_points,
             "wrong_points": scored.wrong_points,
             "advice": scored.advice,
+            "asr_doubts": scored.asr_doubts,
         }
     db.add(row)
     log.info(
@@ -167,6 +181,7 @@ async def evaluate_and_store(
         extra={
             "answer_id": str(answer.id),
             "eval_run_id": str(run_id) if run_id else None,
+            "transcript_id": str(transcript_id) if transcript_id else None,
             "status": row.status,
             "error": row.error,
             "attempts": row.attempts,

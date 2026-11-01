@@ -41,6 +41,24 @@ class UnprocessableError(AppError):
         self.code = code
 
 
+class PayloadTooLargeError(AppError):
+    status_code = 413
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class ServiceUnavailableError(AppError):
+    status_code = 503
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+STORAGE_UNAVAILABLE = "Хранилище аудио недоступно. Попробуйте позже или ответьте текстом."
+
 NOT_A_VACANCY_RESUME = (
     "Похоже на резюме. Пришлите текст вакансии: требования работодателя к кандидату."
 )

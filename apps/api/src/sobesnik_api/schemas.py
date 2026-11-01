@@ -99,6 +99,7 @@ class SessionAnswerOut(BaseModel):
     """Последний ответ на вопрос сессии."""
 
     id: uuid.UUID
+    kind: str
     status: str
     total: int | None
     passed: bool | None
@@ -148,11 +149,29 @@ class EvaluationOut(BaseModel):
     scores: list[CriterionScoreOut]
     missed_points: list[str]
     advice: str
+    asr_doubts: list[str]
+    """Места, где мог ошибиться распознаватель речи (004 §8.6)."""
     rubric_version: str
     prompt_version: str
     model: str
     latency_ms: int
     created_at: datetime
+
+
+class AudioOut(BaseModel):
+    mime: str
+    duration_s: float
+    expires_at: datetime
+    deleted: bool
+
+
+class TranscriptOut(BaseModel):
+    id: uuid.UUID
+    kind: str
+    text: str
+    language: str
+    asr_model: str | None
+    latency_ms: int | None
 
 
 class AnswerOut(BaseModel):
@@ -164,7 +183,14 @@ class AnswerOut(BaseModel):
     status: str
     error: str | None
     created_at: datetime
+    audio: AudioOut | None = None
+    transcript: TranscriptOut | None = None
     evaluation: EvaluationOut | None
+
+
+class ForgetOut(BaseModel):
+    audio_deleted: int
+    transcripts_deleted: int
 
 
 class SummaryQuestionOut(BaseModel):

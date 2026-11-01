@@ -1,5 +1,6 @@
 """Сборка приложения FastAPI. Без побочных эффектов при импорте — его используют тесты."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -13,8 +14,11 @@ from sobesnik_api.routes import answers, health, sessions, users, vacancies
 from sobesnik_api.settings import Settings
 from sobesnik_api.sources.fetch import PageFetcher
 from sobesnik_api.topics_sync import sync_topics
+from sobesnik_asr import AudioStorage, StorageError
 from sobesnik_core.topics import load_topics
 from sobesnik_llm import LLMProvider
+
+log = logging.getLogger(__name__)
 
 
 def create_app(
@@ -24,8 +28,10 @@ def create_app(
     llm_eval: LLMProvider | None = None,
     fetcher: PageFetcher | None = None,
     queue: TaskQueue | None = None,
+    storage: AudioStorage | None = None,
 ) -> FastAPI:
-    """`llm`, `llm_eval`, `fetcher` и `queue` передают тесты; без них всё собирается по env.
+    """`llm`, `llm_eval`, `fetcher`, `queue` и `storage` передают тесты; без них всё собирается
+    по env.
 
     `llm` без `llm_eval` обслуживает обе роли.
     """
@@ -43,6 +49,11 @@ def create_app(
             timeout_s=settings.fetch_timeout_s, allow_private=settings.fetch_allow_private
         )
         app.state.queue = queue or ArqQueue(settings.redis_url)
+        app.state.storage = storage or settings.audio_storage()
+        try:
+            await app.state.storage.ensure_bucket()
+        except StorageError as exc:  # приём голоса ответит 503, остальное работает
+            log.warning("audio bucket not ready", extra={"error": type(exc).__name__})
         app.state.settings = settings
         yield
         await app.state.queue.aclose()

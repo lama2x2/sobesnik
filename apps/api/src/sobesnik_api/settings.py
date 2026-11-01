@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from sobesnik_asr import ASRConfig, ASRProviderName, AudioStorage, S3AudioStorage
 from sobesnik_llm import LLMConfig, ProviderName, StructuredMode
 
 Role = Literal["gen", "eval"]
@@ -42,6 +43,26 @@ class Settings(BaseSettings):
     worker_max_jobs: int = 1
     eval_max_tries: int = 5
 
+    # Хранилище аудио (004 §5.3, §11)
+    s3_endpoint_url: str = "http://s3:9000"
+    s3_access_key: str = "sobesnik"
+    s3_secret_key: SecretStr = SecretStr("sobesnik-secret")
+    s3_bucket: str = "sobesnik-audio"
+    audio_ttl_days: int = 30
+    audio_max_bytes: int = 25 * 1024 * 1024
+    audio_max_seconds: int = 300
+
+    # Распознавание речи (004 §5.1, §11)
+    asr_provider: ASRProviderName = "faster_whisper"
+    asr_model: str = "small"
+    asr_language: str = "ru"
+    """`auto` — автоопределение языка."""
+    asr_compute_type: str = "int8"
+    asr_beam_size: int = 5
+    asr_cpu_threads: int = 0
+    asr_model_dir: str | None = "/models"
+    asr_max_tries: int = 4
+
     fetch_timeout_s: float = 10.0
     fetch_allow_private: bool = False
 
@@ -64,6 +85,28 @@ class Settings(BaseSettings):
     def empty_is_none(cls, value: object) -> object:
         """`LLM_GEN_MODEL=` в .env означает «не задано», а не пустую строку."""
         return None if value == "" else value
+
+    @property
+    def asr_language_code(self) -> str | None:
+        return None if self.asr_language in ("", "auto") else self.asr_language
+
+    def asr_config(self) -> ASRConfig:
+        return ASRConfig(
+            provider=self.asr_provider,
+            model=self.asr_model,
+            model_dir=self.asr_model_dir,
+            compute_type=self.asr_compute_type,
+            beam_size=self.asr_beam_size,
+            cpu_threads=self.asr_cpu_threads,
+        )
+
+    def audio_storage(self) -> AudioStorage:
+        return S3AudioStorage(
+            self.s3_endpoint_url,
+            self.s3_access_key,
+            self.s3_secret_key.get_secret_value(),
+            self.s3_bucket,
+        )
 
     def llm_config(self, role: Role) -> LLMConfig:
         provider = getattr(self, f"llm_{role}_provider") or self.llm_provider

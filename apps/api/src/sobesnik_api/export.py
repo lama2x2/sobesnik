@@ -1,5 +1,5 @@
-"""Выгрузка оценок в CSV (EVAL-7, 003 §9.2): широкий формат — строка на оценку,
-длинный — строка на пару «оценка × критерий»."""
+"""Выгрузка оценок в CSV (EVAL-7, 003 §9.2, 004 §9.3): широкий формат — строка на оценку,
+длинный — строка на пару «оценка × критерий». В `answer` — тот текст, который оценивался."""
 
 import csv
 import uuid
@@ -11,7 +11,7 @@ from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from sobesnik_api.db.models import Answer, EvalRun, Evaluation, Question
+from sobesnik_api.db.models import Answer, Audio, EvalRun, Evaluation, Question, Transcript
 from sobesnik_core.rubric import Criterion, load_rubric
 from sobesnik_core.versioned import version_number
 
@@ -29,6 +29,11 @@ COMMON = [
     "question",
     "key_points",
     "answer",
+    "answer_kind",
+    "transcript_id",
+    "transcript_kind",
+    "asr_model",
+    "audio_duration_s",
     "reference_answer",
     "human_score",
     "rubric_version",
@@ -44,6 +49,7 @@ TAIL = [
     "missed_points",
     "wrong_points",
     "advice",
+    "asr_doubts",
     "attempts",
     "latency_ms",
     "tokens_in",
@@ -68,6 +74,8 @@ class Row:
     answer: Answer
     question: Question
     run: EvalRun | None
+    transcript: Transcript | None = None
+    audio: Audio | None = None
 
 
 async def select_rows(db: AsyncSession, export: ExportFilter) -> list[Row]:
@@ -81,14 +89,16 @@ async def select_rows(db: AsyncSession, export: ExportFilter) -> list[Row]:
         conds.append(Answer.session_id == export.session_id)
     run = aliased(EvalRun)
     result = await db.execute(
-        select(Evaluation, Answer, Question, run)
+        select(Evaluation, Answer, Question, run, Transcript, Audio)
         .join(Answer, Answer.id == Evaluation.answer_id)
         .join(Question, Question.id == Answer.question_id)
         .outerjoin(run, run.id == Evaluation.eval_run_id)
+        .outerjoin(Transcript, Transcript.id == Evaluation.transcript_id)
+        .outerjoin(Audio, Audio.answer_id == Answer.id)
         .where(and_(*conds))
         .order_by(Answer.created_at, Answer.id, Evaluation.created_at, Evaluation.id)
     )
-    return [Row(e, a, q, r) for e, a, q, r in result]
+    return [Row(e, a, q, r, t, au) for e, a, q, r, t, au in result]
 
 
 def _criteria(rows: Sequence[Row]) -> list[Criterion]:
@@ -112,7 +122,7 @@ def _join(items: Sequence[Any] | None) -> str:
 
 
 def _common(row: Row) -> dict[str, Any]:
-    e, a, q = row.evaluation, row.answer, row.question
+    e, a, q, t = row.evaluation, row.answer, row.question, row.transcript
     feedback = e.feedback or {}
     return {
         "evaluation_id": e.id,
@@ -124,7 +134,12 @@ def _common(row: Row) -> dict[str, Any]:
         "topic": q.topic_slug or "",
         "question": q.text,
         "key_points": _join(q.key_points),
-        "answer": a.text or "",
+        "answer": t.text if t else a.text or "",
+        "answer_kind": a.kind,
+        "transcript_id": t.id if t else "",
+        "transcript_kind": t.kind if t else "",
+        "asr_model": (t.asr_model or "") if t else "",
+        "audio_duration_s": row.audio.duration_s if row.audio else "",
         "reference_answer": "",
         "human_score": "",
         "rubric_version": e.rubric_version,
@@ -138,6 +153,7 @@ def _common(row: Row) -> dict[str, Any]:
         "missed_points": _join(feedback.get("missed_points")),
         "wrong_points": _join(feedback.get("wrong_points")),
         "advice": feedback.get("advice", ""),
+        "asr_doubts": _join(feedback.get("asr_doubts")),
         "attempts": e.attempts,
         "latency_ms": e.latency_ms,
         "tokens_in": "" if e.tokens_in is None else e.tokens_in,

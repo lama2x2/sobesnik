@@ -256,8 +256,20 @@ async def test_session_shows_answers_and_finish(
 
     body = (await client.get(f"/sessions/{session['id']}")).json()
     answers = [q["answer"] for q in body["questions"]]
-    assert answers[0] == {"id": first, "status": "done", "total": 100, "passed": True}
-    assert answers[1] == {"id": second, "status": "received", "total": None, "passed": None}
+    assert answers[0] == {
+        "id": first,
+        "kind": "text",
+        "status": "done",
+        "total": 100,
+        "passed": True,
+    }
+    assert answers[1] == {
+        "id": second,
+        "kind": "text",
+        "status": "received",
+        "total": None,
+        "passed": None,
+    }
     assert answers[2] is None
 
     summary = (await client.post(f"/sessions/{session['id']}/finish")).json()

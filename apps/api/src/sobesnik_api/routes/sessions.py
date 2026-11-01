@@ -26,6 +26,7 @@ def _answer_out(state: AnswerState | None) -> SessionAnswerOut | None:
     evaluation = state.evaluation
     return SessionAnswerOut(
         id=state.answer.id,
+        kind=state.answer.kind,
         status=state.answer.status,
         total=evaluation.total if evaluation else None,
         passed=evaluation.passed if evaluation else None,

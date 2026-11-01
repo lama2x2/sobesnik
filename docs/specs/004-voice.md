@@ -5,7 +5,7 @@
 ## 1. Цель
 
 Пользователь отвечает на вопрос сессии голосом: присылает аудиофайл (ogg/opus из Telegram, webm, mp3, wav).
-API сразу отвечает `202`, аудио ложится в MinIO, воркер распознаёт его faster-whisper и оценивает транскрипт
+API сразу отвечает `202`, аудио ложится в S3-совместимое хранилище, воркер распознаёт его faster-whisper и оценивает транскрипт
 **тем же кодом**, что и текстовый ответ (003 §6, §8.2). Оценка ссылается на конкретный транскрипт. К ответу
 можно добавить ручную расшифровку (`reference`) и переоценить ответы по ней прогоном — так в спринте 5
 считается влияние ошибок распознавания. Аудио живёт только в хранилище инстанса и удаляется по TTL и по запросу.
@@ -23,7 +23,8 @@ API сразу отвечает `202`, аудио ложится в MinIO, во�
 ## 2. Границы
 
 **Входит:**
-- MinIO в compose, интерфейс хранилища аудио, загрузка, TTL и удаление аудио;
+- S3-совместимое хранилище в compose (RustFS вместо MinIO, §6), интерфейс хранилища аудио,
+  загрузка, TTL и удаление аудио;
 - `packages/asr`: интерфейс `Transcriber`, провайдер faster-whisper, фейковый провайдер, проверка аудиофайла;
 - таблицы `audio` и `transcript`, поля `evaluation.transcript_id` и `eval_run.transcript_kind` (миграция `0004`);
 - `POST /sessions/{id}/questions/{qid}/answer/voice`, транскрипт в `GET /answers/{id}`,
@@ -52,7 +53,7 @@ API сразу отвечает `202`, аудио ложится в MinIO, во�
    PyAV читает его так же, как остальные форматы. Это одна строка в списке форматов.
 3. **Язык**: `ASR_LANGUAGE=ru` по умолчанию, `auto` — автоопределение (ASR-2 «автоопределение как запасной
    вариант» сделано настройкой, а не повтором распознавания: повтор удваивает время на CPU).
-4. **Аудио по TTL удаляется из MinIO, но строка `audio` остаётся** с отметкой `deleted_at`: на неё ссылаются
+4. **Аудио по TTL удаляется из хранилища, но строка `audio` остаётся** с отметкой `deleted_at`: на неё ссылаются
    транскрипты, а их TTL не касается (ASR-5 говорит только об аудио). Транскрипты удаляются по `/forget`.
 5. **Хранилище аудио — интерфейс в `packages/asr`** (`AudioStorage`), а не в `apps/api`: по CLAUDE.md
    внешние сервисы (S3) мокаются через интерфейсы из `packages/*`. Отдельный пакет ради трёх методов не заводится.
@@ -60,7 +61,8 @@ API сразу отвечает `202`, аудио ложится в MinIO, во�
    распознавание. У аудио — `size_bytes` и `deleted_at`.
 7. **Сомнения в распознавании** (§8.6) — новое поле оценки `asr_doubts` и промпт `evaluate_answer/v2`.
    В 000 его нет; добавлено по просьбе автора: пользователь должен понимать, где ошибся он, а где распознаватель.
-После одобрения спеки пункты 2–7 вписываются в 000 (§4.3, §4.4, §7, §9).
+8. **RustFS вместо MinIO** (§6): образы MinIO больше не публикуются.
+После одобрения спеки пункты 2–8 вписываются в 000 (§4.3, §4.4, §6, §7, §9).
 
 ## 4. Структура (что меняется)
 
@@ -90,7 +92,7 @@ apps/api/src/sobesnik_api/
   routes/answers.py, routes/users.py
 apps/api/alembic/versions/0004_voice.py
 research/asr_check/                cut.sh, check.py (§12)
-compose.yaml                       + minio, том моделей whisper
+compose.yaml                       + s3 (RustFS), том моделей whisper
 Dockerfile                         + packages/asr/pyproject.toml
 ```
 
@@ -157,19 +159,21 @@ class StorageUnavailableError(Exception): ...
 ```
 
 - `S3AudioStorage` — boto3 через `asyncio.to_thread`, адрес и ключи из env. Работает с любым S3-совместимым
-  хранилищем, MinIO — только сервис в compose.
+  хранилищем, RustFS — только сервис в compose.
 - `MemoryStorage` — словарь в памяти для тестов.
 - Ключ объекта — `audio/<answer_id>`: без имён файлов и пользователей. Бакет `sobesnik-audio` создаётся
   при старте API и воркера (`ensure_bucket`), ошибка пишется в лог и не роняет старт.
 
-## 6. MinIO в compose
+## 6. Хранилище аудио в compose
 
-- Сервис `minio`: образ закреплён на конкретном релизе `minio/minio:RELEASE.…` (тег выбирается при реализации,
-  последний опубликованный). Порт наружу не публикуется, консоль не нужна. Том `miniodata`.
-  Healthcheck — `mc ready local`. `api` и `worker` зависят от здорового `minio`.
-- Риск: с конца 2025 года MinIO не публикует новые сборки community-версии. Закреплённый образ работает,
-  а код от MinIO не зависит: замена на SeaweedFS или Garage — правка compose и env, без кода.
-- Лицензия MinIO — AGPL-3.0; используется как отдельный сервис без изменений, на лицензию Sobesnik не влияет.
+- **Вместо MinIO — RustFS** (отклонение от 000, §3 п. 8). При реализации выяснилось, что образы MinIO
+  больше не публикуются: `minio/minio` нет ни на Docker Hub, ни на quay.io. RustFS — S3-совместимое
+  хранилище под Apache-2.0, повторяет API и переменные MinIO.
+- Сервис `s3`: образ `rustfs/rustfs:1.0.3`, ключи из `S3_ACCESS_KEY`/`S3_SECRET_KEY`, консоль выключена,
+  порт наружу не публикуется, том `s3data`. Healthcheck — `curl /health`. `api`, `worker` и `tools`
+  зависят от здорового `s3`.
+- Код от RustFS не зависит (boto3, `S3_ENDPOINT_URL`): замена на SeaweedFS, Garage или облачный S3 —
+  правка compose и env.
 
 ## 7. Данные (миграция `0004`)
 
@@ -247,7 +251,7 @@ class StorageUnavailableError(Exception): ...
 - `DELETE /users/{id}/data?scope=audio`: удаляет из хранилища все аудио пользователя, затем строки `audio`
   (транскрипты удаляются каскадом). Ответ — `200 {"audio_deleted": N, "transcripts_deleted": M}`.
   Если хранилище недоступно — `503 storage_unavailable`, в БД ничего не удаляется: аудио не должно остаться
-  в MinIO без строки, по которой его можно найти. Повторный вызов безопасен.
+  в хранилище без строки, по которой его можно найти. Повторный вызов безопасен.
 - Голосовые ответы и их оценки после удаления остаются: в `GET /answers/{id}` транскрипт `null`.
 - Другие значения `scope` — `422` (спринт 7).
 
@@ -328,8 +332,8 @@ sobesnik-cli transcript add ANSWER_ID --file ref.txt [--language ru]
 
 | Переменная | По умолчанию | |
 |---|---|---|
-| `S3_ENDPOINT_URL` | `http://minio:9000` | S3-совместимое хранилище |
-| `S3_ACCESS_KEY`, `S3_SECRET_KEY` | `sobesnik`, `sobesnik-secret` | они же `MINIO_ROOT_USER/PASSWORD` в compose |
+| `S3_ENDPOINT_URL` | `http://s3:9000` | S3-совместимое хранилище |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY` | `sobesnik`, `sobesnik-secret` | они же учётка сервиса `s3` в compose |
 | `S3_BUCKET` | `sobesnik-audio` | |
 | `AUDIO_TTL_DAYS` | `30` | ASR-5 |
 | `AUDIO_MAX_BYTES` | `26214400` (25 МБ) | |
@@ -372,7 +376,7 @@ sobesnik-cli transcript add ANSWER_ID --file ref.txt [--language ru]
 
 ## 13. Тесты
 
-Без Ollama, whisper, MinIO, Redis и сети: `FakeProvider`, `FakeTranscriber`, `MemoryStorage`, подменённый `TaskQueue`.
+Без Ollama, whisper, S3, Redis и сети: `FakeProvider`, `FakeTranscriber`, `MemoryStorage`, подменённый `TaskQueue`.
 
 - `packages/asr`:
   - `probe_audio` на крошечных файлах, сгенерированных в тесте через PyAV (ogg, wav): формат, mime, длительность;
@@ -419,7 +423,7 @@ sobesnik-cli transcript add ANSWER_ID --file ref.txt [--language ru]
 ## 14. Демо
 
 ```bash
-docker compose up -d --build                      # + minio
+docker compose up -d --build                      # + s3
 research/asr_check/cut.sh "$SRC" 00:12:30 answer1   # на хосте: 60 с из записи → research/data/asr_check/answer1.ogg
 
 curl -s -X POST localhost:8000/api/v1/sessions/$SESSION/questions/$QID/answer/voice \
@@ -439,10 +443,10 @@ ollama stop qwen3.5:4b
 1. Голосовой ответ ~1 мин через API получает `202`, проходит `received → transcribing → evaluating → done`,
    и `GET /answers/{id}` показывает транскрипт и оценку, которая ссылается на этот транскрипт (000 §11 п. 3).
 2. Ручная расшифровка добавляется через CLI, прогон `--transcript reference` даёт вторую оценку, обе стоят рядом в CSV.
-3. Аудио лежит только в MinIO (ни в БД, ни в логах, ни в репозитории); TTL и `DELETE …/data?scope=audio`
+3. Аудио лежит только в хранилище `s3` (ни в БД, ни в логах, ни в репозитории); TTL и `DELETE …/data?scope=audio`
    удаляют его, что проверено тестами (000 §11 п. 7 — в части аудио и транскриптов).
 4. Время распознавания 1–2 записей моделью по умолчанию записано в «Итоги» (ориентир ≤ 30 с на минуту речи).
-5. ANS-2, ASR-1…5, EVAL-5 закрыты тестами по таблице трассировки; тесты проходят без whisper, MinIO, Ollama и Redis.
+5. ANS-2, ASR-1…5, EVAL-5 закрыты тестами по таблице трассировки; тесты проходят без whisper, S3, Ollama и Redis.
 6. `pytest`, `ruff check`, `ruff format --check`, `mypy` зелёные в `tools`.
 
 ## 16. Решения по открытым вопросам

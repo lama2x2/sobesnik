@@ -1,4 +1,4 @@
-"""Прогоны: переоценка набора ответов заданной моделью (EVAL-6, 003 §9.1)."""
+"""Прогоны: переоценка набора ответов заданной моделью (EVAL-6, 003 §9.1, 004 §9.1)."""
 
 import logging
 import uuid
@@ -8,12 +8,14 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, exists, func, select
+from sqlalchemy import ColumnElement, and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from sobesnik_api.db.models import Answer, EvalRun, Evaluation
+from sobesnik_api.db.models import Answer, Audio, EvalRun, Evaluation, Transcript
 from sobesnik_api.errors import ConflictError, NotFoundError
+from sobesnik_api.services.answers import IN_PROGRESS
 from sobesnik_api.services.evaluation import EVAL_PROMPT, EvalConfig, evaluate_and_store
+from sobesnik_api.services.voice import latest_transcript
 from sobesnik_core.prompt import load_prompt
 from sobesnik_core.rubric import load_rubric
 from sobesnik_core.versioned import version_number
@@ -45,11 +47,17 @@ class RunFilter:
             until=date.fromisoformat(data["until"]) if data.get("until") else None,
         )
 
-    def conditions(self) -> list[ColumnElement[bool]]:
-        conds: list[ColumnElement[bool]] = [
-            Answer.text.is_not(None),
-            Answer.status.not_in(("received", "evaluating")),
-        ]
+    def conditions(self, transcript_kind: str | None = None) -> list[ColumnElement[bool]]:
+        """Ответы прогона. `transcript_kind` не задан — как в бою: текстовые ответы и голосовые
+        с распознанным текстом; `asr` или `reference` — только голосовые с таким транскриптом."""
+        if transcript_kind is None:
+            evaluable = or_(
+                and_(Answer.kind == "text", Answer.text.is_not(None)),
+                and_(Answer.kind == "voice", _has_transcript("asr")),
+            )
+        else:
+            evaluable = and_(Answer.kind == "voice", _has_transcript(transcript_kind))
+        conds: list[ColumnElement[bool]] = [evaluable, Answer.status.not_in(IN_PROGRESS)]
         if self.session_id:
             conds.append(Answer.session_id == self.session_id)
         if self.user_id:
@@ -60,6 +68,15 @@ class RunFilter:
             end = datetime.combine(self.until, time.max, UTC)
             conds.append(Answer.created_at <= end)
         return conds
+
+
+def _has_transcript(kind: str) -> ColumnElement[bool]:
+    return exists().where(
+        Audio.answer_id == Answer.id,
+        Transcript.audio_id == Audio.id,
+        Transcript.kind == kind,
+        Transcript.text != "",
+    )
 
 
 def run_config(run: EvalRun, *, max_retries: int, num_ctx: int | None) -> EvalConfig:
@@ -84,6 +101,7 @@ async def create_run(
     model: str,
     run_filter: RunFilter,
     rubric_number: int | None = None,
+    transcript_kind: str | None = None,
 ) -> EvalRun:
     rubric = load_rubric(rubric_number)
     template = load_prompt(EVAL_PROMPT)
@@ -93,6 +111,7 @@ async def create_run(
         model=model,
         rubric_version=rubric.version,
         prompt_version=template.version,
+        transcript_kind=transcript_kind,
         filter=run_filter.to_json(),
         status="queued",
     )
@@ -118,7 +137,7 @@ def _done_in_run(run_id: uuid.UUID) -> ColumnElement[bool]:
 
 async def run_answer_ids(db: AsyncSession, run: EvalRun) -> list[uuid.UUID]:
     """Ответы прогона, у которых ещё нет успешной оценки этого прогона."""
-    conds = RunFilter.from_json(run.filter).conditions()
+    conds = RunFilter.from_json(run.filter).conditions(run.transcript_kind)
     result = await db.scalars(
         select(Answer.id)
         .where(and_(*conds), ~_done_in_run(run.id))
@@ -128,7 +147,7 @@ async def run_answer_ids(db: AsyncSession, run: EvalRun) -> list[uuid.UUID]:
 
 
 async def refresh_counters(db: AsyncSession, run: EvalRun) -> None:
-    conds = RunFilter.from_json(run.filter).conditions()
+    conds = RunFilter.from_json(run.filter).conditions(run.transcript_kind)
     total = await db.scalar(select(func.count()).select_from(Answer).where(and_(*conds)))
     done = await db.scalar(
         select(func.count()).select_from(Answer).where(and_(*conds), _done_in_run(run.id))
@@ -187,6 +206,7 @@ async def execute_run(
         await refresh_counters(db, run)
         await db.commit()
         answer_ids = await run_answer_ids(db, run)
+        transcript_kind = run.transcript_kind or "asr"
 
     log.info("eval run started", extra={"eval_run_id": str(run_id), "answers": len(answer_ids)})
     unavailable_in_row = 0
@@ -202,8 +222,15 @@ async def execute_run(
                 answer = await db.get(Answer, answer_id)
                 if answer is None:  # удалён, пока шёл прогон
                     continue
+                transcript = (
+                    await latest_transcript(db, answer.id, transcript_kind)
+                    if answer.kind == "voice"
+                    else None
+                )
                 try:
-                    await evaluate_and_store(db, llm, config, answer, run_id=run_id)
+                    await evaluate_and_store(
+                        db, llm, config, answer, run_id=run_id, transcript=transcript
+                    )
                     unavailable_in_row = 0
                 except LLMUnavailableError as exc:
                     db.add(_unavailable_row(llm, config, answer.id, run_id))

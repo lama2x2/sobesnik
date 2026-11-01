@@ -27,6 +27,7 @@ from sobesnik_api.db.session import make_sessionmaker
 from sobesnik_api.settings import Settings
 from sobesnik_api.sources.fetch import PageFetcher
 from sobesnik_api.worker import WorkerDeps
+from sobesnik_asr import FakeTranscriber, MemoryStorage
 from sobesnik_core.rubric import load_rubric
 from sobesnik_llm import FakeProvider, LLMProvider
 
@@ -238,6 +239,7 @@ class FakeQueue:
 
     def __init__(self) -> None:
         self.evaluations: list[uuid.UUID] = []
+        self.transcriptions: list[uuid.UUID] = []
         self.runs: list[uuid.UUID] = []
         self.broken = False
 
@@ -245,6 +247,11 @@ class FakeQueue:
         if self.broken:
             raise ConnectionError("redis недоступен")
         self.evaluations.append(answer_id)
+
+    async def enqueue_transcription(self, answer_id: uuid.UUID) -> None:
+        if self.broken:
+            raise ConnectionError("redis недоступен")
+        self.transcriptions.append(answer_id)
 
     async def enqueue_run(self, run_id: uuid.UUID) -> None:
         if self.broken:
@@ -288,12 +295,32 @@ def run_models(llm: FakeProvider) -> RunModels:
 
 
 @pytest.fixture
-def deps(engine: AsyncEngine, llm: FakeProvider, run_models: RunModels) -> WorkerDeps:
+def storage() -> MemoryStorage:
+    return MemoryStorage()
+
+
+@pytest.fixture
+def transcriber() -> FakeTranscriber:
+    return FakeTranscriber("Составной индекс упорядочен по первому столбцу.", model="small")
+
+
+@pytest.fixture
+def deps(
+    engine: AsyncEngine,
+    llm: FakeProvider,
+    run_models: RunModels,
+    transcriber: FakeTranscriber,
+    storage: MemoryStorage,
+    queue: FakeQueue,
+) -> WorkerDeps:
     return WorkerDeps(
-        settings=Settings(eval_max_tries=3),
+        settings=Settings(eval_max_tries=3, asr_max_tries=3),
         sessionmaker=make_sessionmaker(engine),
         llm=llm,
         run_llm=run_models,
+        transcriber=transcriber,
+        storage=storage,
+        queue=queue,
     )
 
 
@@ -304,10 +331,19 @@ def replies() -> type[Replies]:
 
 @pytest.fixture
 async def app(
-    database_url: str, engine: AsyncEngine, llm: FakeProvider, web: FakeWeb, queue: FakeQueue
+    database_url: str,
+    engine: AsyncEngine,
+    llm: FakeProvider,
+    web: FakeWeb,
+    queue: FakeQueue,
+    storage: MemoryStorage,
 ) -> AsyncIterator[FastAPI]:
     app = create_app(
-        Settings(database_url=database_url), llm=llm, fetcher=web.fetcher(), queue=queue
+        Settings(database_url=database_url),
+        llm=llm,
+        fetcher=web.fetcher(),
+        queue=queue,
+        storage=storage,
     )
     async with app.router.lifespan_context(app):
         yield app

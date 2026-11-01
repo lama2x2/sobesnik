@@ -12,6 +12,8 @@ x-app: &app
       condition: service_healthy
     redis:
       condition: service_healthy
+    s3:
+      condition: service_healthy
 
 services:
   postgres:
@@ -34,6 +36,22 @@ services:
     image: redis:7.2-alpine
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # S3-совместимое хранилище аудио (004 §6). Образы MinIO больше не публикуются, поэтому RustFS
+  # (Apache-2.0, совместим с API MinIO). Код от него не зависит: замена — правка этого блока и S3_*.
+  s3:
+    image: rustfs/rustfs:1.0.3
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-sobesnik}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-sobesnik-secret}
+      RUSTFS_CONSOLE_ENABLE: "false"
+    volumes:
+      - s3data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/health"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -68,8 +86,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      s3:
+        condition: service_healthy
       api:
         condition: service_healthy
+    volumes:
+      # модели whisper: скачиваются при первом распознавании, в образ не попадают
+      - asr-models:/models
     restart: unless-stopped
 
   # Тесты, линтеры, CLI: docker compose run --rm tools uv run pytest
@@ -81,9 +104,13 @@ services:
     profiles: ["tools"]
     volumes:
       - .:/app
+      - asr-models:/models
     environment:
       LLM_PROVIDER: fake
+      ASR_PROVIDER: fake
       TEST_DATABASE_URL: postgresql+asyncpg://sobesnik:sobesnik@postgres:5432/sobesnik_test
 
 volumes:
   pgdata:
+  s3data:
+  asr-models:

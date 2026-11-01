@@ -1,4 +1,4 @@
-"""Ответ на вопрос сессии и его оценка воркером (003 §8)."""
+"""Ответ на вопрос сессии и его оценка воркером (003 §8). Голосовой ответ — в `voice.py`."""
 
 import logging
 import uuid
@@ -16,18 +16,13 @@ from sobesnik_api.services.sessions import get_session
 
 log = logging.getLogger(__name__)
 
-IN_PROGRESS = ("received", "evaluating")
+IN_PROGRESS = ("received", "transcribing", "evaluating")
 
 
-async def submit_answer(
-    db: AsyncSession,
-    queue: TaskQueue,
-    session_id: uuid.UUID,
-    question_id: uuid.UUID,
-    text: str,
-) -> Answer:
-    """Сохраняет ответ и ставит оценку в очередь. Недоступная очередь не мешает приёму:
-    ответ подхватит воркер при старте."""
+async def check_can_answer(
+    db: AsyncSession, session_id: uuid.UUID, question_id: uuid.UUID
+) -> TrainingSession:
+    """Вопрос входит в незавершённую сессию, и на него ещё нет ответа (кроме упавшего)."""
     session = await get_session(db, session_id)
     if all(item.question_id != question_id for item in session.items):
         raise NotFoundError("question_not_in_session", "в сессии нет такого вопроса")
@@ -42,7 +37,19 @@ async def submit_answer(
     )
     if previous.first() is not None:
         raise ConflictError("already_answered", "на этот вопрос уже есть ответ")
+    return session
 
+
+async def submit_answer(
+    db: AsyncSession,
+    queue: TaskQueue,
+    session_id: uuid.UUID,
+    question_id: uuid.UUID,
+    text: str,
+) -> Answer:
+    """Сохраняет ответ и ставит оценку в очередь. Недоступная очередь не мешает приёму:
+    ответ подхватит воркер при старте."""
+    session = await check_can_answer(db, session_id, question_id)
     answer = Answer(
         question_id=question_id,
         session_id=session_id,

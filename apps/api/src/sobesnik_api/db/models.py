@@ -1,4 +1,4 @@
-"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7."""
+"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7, 004 §7."""
 
 import uuid
 from datetime import datetime
@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -34,8 +35,9 @@ VACANCY_SOURCES = ("text", "url", "html")
 SESSION_MODES = ("vacancy",)
 SESSION_STATUSES = ("active", "finished")
 ANSWER_SOURCES = ("user",)
-ANSWER_KINDS = ("text",)
-ANSWER_STATUSES = ("received", "evaluating", "done", "failed")
+ANSWER_KINDS = ("text", "voice")
+ANSWER_STATUSES = ("received", "transcribing", "evaluating", "done", "failed")
+TRANSCRIPT_KINDS = ("asr", "reference")
 EVALUATION_STATUSES = ("done", "failed")
 EVAL_RUN_STATUSES = ("queued", "running", "done", "failed")
 
@@ -190,11 +192,65 @@ class Answer(Base):
     question: Mapped[Question] = relationship(lazy="selectin")
 
 
+class Audio(Base):
+    """Аудио голосового ответа. Сам файл — в хранилище по `s3_key` (ASR-1).
+
+    По TTL удаляется объект в хранилище, а строка остаётся с `deleted_at`: на неё ссылаются
+    транскрипты.
+    """
+
+    __tablename__ = "audio"
+    __table_args__ = (
+        Index(
+            "ix_audio_expires_at",
+            "expires_at",
+            postgresql_where=sql_text("deleted_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    answer_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("answer.id", ondelete="CASCADE"), unique=True
+    )
+    s3_key: Mapped[str] = mapped_column(Text)
+    mime: Mapped[str] = mapped_column(Text)
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    duration_s: Mapped[float] = mapped_column(Float)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Transcript(Base):
+    """Транскрипт аудио: распознанный (`asr`) или ручная расшифровка (`reference`), ASR-3."""
+
+    __tablename__ = "transcript"
+    __table_args__ = (
+        CheckConstraint(_in("kind", TRANSCRIPT_KINDS), name="kind"),
+        Index("ix_transcript_audio_id_kind", "audio_id", "kind"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    audio_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("audio.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(Text)
+    text: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(Text)
+    language_prob: Mapped[float | None] = mapped_column(Float)
+    asr_model: Mapped[str | None] = mapped_column(Text)
+    avg_logprob: Mapped[float | None] = mapped_column(Float)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class EvalRun(Base):
     """Прогон: переоценка набора ответов заданной моделью (EVAL-6)."""
 
     __tablename__ = "eval_run"
-    __table_args__ = (CheckConstraint(_in("status", EVAL_RUN_STATUSES), name="status"),)
+    __table_args__ = (
+        CheckConstraint(_in("status", EVAL_RUN_STATUSES), name="status"),
+        CheckConstraint(_in("transcript_kind", TRANSCRIPT_KINDS), name="transcript_kind"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(Text)
@@ -202,6 +258,8 @@ class EvalRun(Base):
     model: Mapped[str] = mapped_column(Text)
     rubric_version: Mapped[str] = mapped_column(Text)
     prompt_version: Mapped[str] = mapped_column(Text)
+    transcript_kind: Mapped[str | None] = mapped_column(Text)
+    """Какой транскрипт оценивать у голосовых ответов; None — как в бою (004 §9.1)."""
     filter: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, server_default=sql_text("'{}'::jsonb")
     )
@@ -227,6 +285,10 @@ class Evaluation(Base):
     eval_run_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("eval_run.id", ondelete="CASCADE"), index=True
     )
+    transcript_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("transcript.id", ondelete="SET NULL"), index=True
+    )
+    """Какой транскрипт оценён (EVAL-5); у текстового ответа — None."""
     status: Mapped[str] = mapped_column(Text)
     rubric_version: Mapped[str] = mapped_column(Text)
     prompt_version: Mapped[str] = mapped_column(Text)
@@ -238,7 +300,7 @@ class Evaluation(Base):
     total: Mapped[int | None] = mapped_column(Integer)
     passed: Mapped[bool | None] = mapped_column(Boolean)
     feedback: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    """{"missed_points": [...], "wrong_points": [...], "advice": "…"}."""
+    """{"missed_points": [...], "wrong_points": [...], "advice": "…", "asr_doubts": [...]}."""
     raw_response: Mapped[str | None] = mapped_column(Text)
     attempts: Mapped[int] = mapped_column(Integer)
     latency_ms: Mapped[int] = mapped_column(Integer)

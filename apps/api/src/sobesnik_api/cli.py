@@ -1,6 +1,7 @@
-"""CLI исследователя (003 §9): прогоны оценки и выгрузка CSV.
+"""CLI исследователя (003 §9, 004 §9): прогоны оценки, ручные расшифровки и выгрузка CSV.
 
     docker compose run --rm tools uv run sobesnik-cli eval-run create --name s --model qwen3:1.7b
+    docker compose run --rm tools uv run sobesnik-cli transcript add ANSWER_ID --file ref.txt
     docker compose run --rm tools uv run sobesnik-cli export --run RUN_ID -o research/data/x.csv
 
 Нужны Postgres и Redis; LLM не нужна — оценивает воркер.
@@ -22,6 +23,7 @@ from sobesnik_api.errors import AppError
 from sobesnik_api.export import ExportFilter, select_rows, write_csv
 from sobesnik_api.queue import ArqQueue, TaskQueue
 from sobesnik_api.services.eval_runs import RunFilter, create_run, get_run, run_config
+from sobesnik_api.services.voice import add_reference_transcript
 from sobesnik_api.settings import Settings
 
 POLL_S = 5.0
@@ -42,12 +44,24 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--since", type=date.fromisoformat, help="YYYY-MM-DD")
     create.add_argument("--until", type=date.fromisoformat, help="YYYY-MM-DD, включительно")
     create.add_argument("--rubric", type=int, help="номер версии рубрики; по умолчанию последняя")
+    create.add_argument(
+        "--transcript",
+        choices=["asr", "reference"],
+        help="только голосовые ответы с таким транскриптом; без флага — как в бою",
+    )
     create.add_argument("--wait", action="store_true", help="ждать окончания и печатать прогресс")
     status = run.add_parser("status", help="статус прогона")
     status.add_argument("run_id", type=uuid.UUID)
     restart = run.add_parser("restart", help="перезапустить: готовые оценки пропускаются")
     restart.add_argument("run_id", type=uuid.UUID)
     restart.add_argument("--wait", action="store_true")
+
+    transcript = commands.add_parser("transcript", help="транскрипты голосовых ответов")
+    transcript_actions = transcript.add_subparsers(dest="action", required=True)
+    add = transcript_actions.add_parser("add", help="добавить ручную расшифровку (reference)")
+    add.add_argument("answer_id", type=uuid.UUID)
+    add.add_argument("--file", type=Path, required=True, help="текст расшифровки, UTF-8")
+    add.add_argument("--language", default="ru")
 
     export = commands.add_parser("export", help="выгрузить оценки в CSV")
     export.add_argument("--run", type=uuid.UUID, action="append", default=[], dest="runs")
@@ -92,6 +106,12 @@ async def run_command(
         print(f"{args.output}: {count} строк, оценок {len(rows)}")
         return 0
 
+    if args.command == "transcript":
+        text = args.file.read_text(encoding="utf-8")
+        added = await add_reference_transcript(db, args.answer_id, text, args.language)
+        print(f"{added.id}  reference  {len(added.text)} символов")
+        return 0
+
     if args.action == "create":
         eval_config = settings.llm_config("eval")
         run = await create_run(
@@ -101,6 +121,7 @@ async def run_command(
             model=args.model or eval_config.model,
             run_filter=RunFilter(args.session, args.user, args.since, args.until),
             rubric_number=args.rubric,
+            transcript_kind=args.transcript,
         )
         await queue.enqueue_run(run.id)
         print(format_run(run))
