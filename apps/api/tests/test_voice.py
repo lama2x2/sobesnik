@@ -34,8 +34,9 @@ from sobesnik_asr import (
     FakeTranscriber,
     MemoryStorage,
     StorageUnavailableError,
+    probe_audio,
 )
-from sobesnik_asr.samples import ogg_opus_bytes, wav_bytes
+from sobesnik_asr.samples import mp4_video_bytes, ogg_opus_bytes, wav_bytes
 from sobesnik_llm import FakeProvider
 
 SPOKEN = "Составной индекс упорядочен по первому столбцу."
@@ -135,6 +136,17 @@ async def test_submit_voice(
         timedelta(days=30), abs=timedelta(minutes=1)
     )
     assert audio.deleted_at is None
+
+
+async def test_submit_video_note_keeps_audio_only(
+    client: AsyncClient, session: dict[str, Any], storage: MemoryStorage
+) -> None:
+    """Кружочек: в хранилище только звук, лица нет (006 §4.6)."""
+    response = await send_voice(client, session, data=mp4_video_bytes(2.0))
+    assert response.status_code == 202, response.text
+    data, mime = storage.objects[f"audio/{response.json()['answer_id']}"]
+    assert mime == "audio/mp4"
+    assert not probe_audio(data).has_video
 
 
 async def test_submit_wav(client: AsyncClient, session: dict[str, Any]) -> None:

@@ -20,7 +20,14 @@ from sobesnik_api.errors import (
 )
 from sobesnik_api.queue import TaskQueue
 from sobesnik_api.services.answers import check_can_answer
-from sobesnik_asr import AudioDecodeError, AudioInfo, AudioStorage, StorageError, probe_audio
+from sobesnik_asr import (
+    AudioDecodeError,
+    AudioInfo,
+    AudioStorage,
+    StorageError,
+    probe_audio,
+    strip_video,
+)
 from sobesnik_core.limits import ANSWER_MAX_CHARS
 
 log = logging.getLogger(__name__)
@@ -77,6 +84,14 @@ async def submit_voice_answer(
     """
     session = await check_can_answer(db, session_id, question_id)
     info = check_audio(data, limits)
+    if info.has_video:  # кружочек: лицо не храним, только звук
+        try:
+            data = strip_video(data)
+            info = probe_audio(data)
+        except AudioDecodeError as exc:
+            raise UnprocessableError(
+                "audio_unsupported", "не удалось отделить звук от видео"
+            ) from exc
 
     answer = Answer(
         id=uuid.uuid4(),

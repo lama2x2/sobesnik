@@ -3,7 +3,7 @@
 from sobesnik_asr.base import ASRError, AudioDecodeError, Transcriber, Transcription
 from sobesnik_asr.factory import ASRConfig, ASRProviderName, make_transcriber
 from sobesnik_asr.fake import FakeTranscriber
-from sobesnik_asr.probe import AudioFormat, AudioInfo, probe_audio
+from sobesnik_asr.probe import AudioFormat, AudioInfo, probe_audio, strip_video
 from sobesnik_asr.storage import (
     AudioNotFoundError,
     AudioStorage,
@@ -33,4 +33,5 @@ __all__ = [
     "Transcription",
     "make_transcriber",
     "probe_audio",
+    "strip_video",
 ]

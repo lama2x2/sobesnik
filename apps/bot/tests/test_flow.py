@@ -189,6 +189,24 @@ async def test_voice_answer(user: Chat_, api: FakeApi, tg: FakeSession, trainer:
     assert tg.last_text().startswith("<b>Вопрос 2 из 3</b>")
 
 
+async def test_video_note_answer(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    """Кружочек уходит в API как mp4 — звук отделит API."""
+    await in_training(user, api, tg)
+    tg.files["circle-1"] = b"mp4-circle"
+    await user.video_note()
+    assert api.voice_data == [(b"mp4-circle", "circle.mp4", "video/mp4")]
+    assert tg.of(SendMessage)[-1].text == "✅ Принято. 🎧 Распознаю речь…"
+
+
+async def test_question_count_buttons(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    await with_vacancy(user, api, tg)
+    keyboard = render.vacancy_keyboard(api.vacancy).inline_keyboard
+    assert [b.text for b in keyboard[-1]] == ["10 вопросов", "15 вопросов"]
+    await user.press(TrainCb(vacancy_id=api.vacancy.id, n=10).pack())
+    assert api.calls[-1] == ("create_session", {"vacancy_id": api.vacancy.id, "n": 10})
+    assert tg.last_text().startswith("<b>Вопрос 1 из 10</b>")
+
+
 async def test_voice_failures(user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer) -> None:
     await user.voice()
     assert tg.last_text() == render.VOICE_NOT_NOW

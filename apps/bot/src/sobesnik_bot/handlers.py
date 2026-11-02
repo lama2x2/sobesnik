@@ -97,6 +97,18 @@ def build_router(trainer: Trainer) -> Router:
             mime=message.voice.mime_type or "audio/ogg",
         )
 
+    @router.message(F.video_note)
+    async def video_note(message: Message) -> None:
+        """Кружочек: API оставит только звуковую дорожку."""
+        assert message.video_note is not None
+        await trainer.voice(
+            *_ids(message),
+            file_id=message.video_note.file_id,
+            size=message.video_note.file_size,
+            filename="circle.mp4",
+            mime="video/mp4",
+        )
+
     @router.message(F.audio)
     async def audio(message: Message) -> None:
         assert message.audio is not None
@@ -149,7 +161,11 @@ def build_router(trainer: Trainer) -> Router:
         await query.answer()
         chat_id, _, telegram_id = _cb_ids(query)
         await trainer.train(
-            chat_id, telegram_id, vacancy_id=callback_data.vacancy_id, new=callback_data.new
+            chat_id,
+            telegram_id,
+            callback_data.n or None,
+            vacancy_id=callback_data.vacancy_id,
+            new=callback_data.new,
         )
 
     @router.callback_query(SkipCb.filter())

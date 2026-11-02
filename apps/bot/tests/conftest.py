@@ -422,6 +422,11 @@ class Chat_:
         }
         await self._feed({"message": self._message(voice=voice)})
 
+    async def video_note(self, file_id: str = "circle-1", size: int = 300_000) -> None:
+        note = {"file_id": file_id, "file_unique_id": "uc", "length": 384, "duration": 20}
+        note["file_size"] = size
+        await self._feed({"message": self._message(video_note=note)})
+
     async def document(
         self, name: str, file_id: str = "doc-1", size: int = 100, mime: str | None = None
     ) -> None:

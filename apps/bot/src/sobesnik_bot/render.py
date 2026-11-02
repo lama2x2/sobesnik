@@ -35,6 +35,12 @@ class LevelCb(CallbackData, prefix="lvl"):
 class TrainCb(CallbackData, prefix="train"):
     vacancy_id: uuid.UUID
     new: bool = False
+    n: int = 0
+    """0 — число по умолчанию (BOT_QUESTIONS) и продолжение незавершённой сессии."""
+
+
+MORE_QUESTIONS = (10, 15)
+"""Кнопки длинной тренировки под «Начать»; любое число от 3 до 15 — /train N."""
 
 
 class SkipCb(CallbackData, prefix="skip"):
@@ -57,7 +63,8 @@ INTRO = (
     "Привет! Я тренирую к техническим собеседованиям.\n\n"
     "1. Пришлите текст вакансии или ссылку на неё — я разберу стек и уровень.\n"
     "2. Нажмите «Начать тренировку» — задам вопросы по вакансии.\n"
-    "3. Отвечайте текстом или голосовым. Оценка — через 15–60 секунд.\n\n"
+    "3. Отвечайте текстом, голосовым или кружочком (берётся только звук). "
+    "Оценка — через 15–60 секунд.\n\n"
     "Оценку ставит небольшая локальная модель: балл примерный (±20), "
     "смотрите на упущенные пункты и совет.\n"
     "Голосовые проходят через серверы Telegram, на этом инстансе хранятся 30 дней. "
@@ -67,7 +74,7 @@ INTRO = (
 HELP = (
     INTRO + "\n\nКоманды:\n"
     "/new — новая вакансия\n"
-    "/train — тренировка по текущей вакансии (/train 3 — из 3 вопросов)\n"
+    "/train — тренировка по текущей вакансии (/train 10 — из 10 вопросов, от 3 до 15)\n"
     "/forget — удалить мои голосовые записи и расшифровки\n"
     "/help — эта справка"
 )
@@ -135,7 +142,13 @@ def vacancy_keyboard(vacancy: Vacancy) -> InlineKeyboardMarkup:
     start = InlineKeyboardButton(
         text="▶️ Начать тренировку", callback_data=TrainCb(vacancy_id=vacancy.id).pack()
     )
-    return InlineKeyboardMarkup(inline_keyboard=[levels[:3], levels[3:], [start]])
+    more = [
+        InlineKeyboardButton(
+            text=f"{n} вопросов", callback_data=TrainCb(vacancy_id=vacancy.id, n=n).pack()
+        )
+        for n in MORE_QUESTIONS
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=[levels[:3], levels[3:], [start], more])
 
 
 # --- вопрос ------------------------------------------------------------------
