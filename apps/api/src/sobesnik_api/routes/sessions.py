@@ -15,7 +15,7 @@ from sobesnik_api.schemas import (
     SummaryQuestionOut,
 )
 from sobesnik_api.services.answers import AnswerState, finish_session, session_answers
-from sobesnik_api.services.sessions import create_session, get_session
+from sobesnik_api.services.sessions import create_repeat_session, create_session, get_session
 
 router = APIRouter(tags=["sessions"])
 
@@ -39,6 +39,7 @@ async def session_out(db: AsyncSession, session: TrainingSession) -> SessionOut:
         id=session.id,
         vacancy_id=session.vacancy_id,
         mode=session.mode,
+        topics=session.topics,
         status=session.status,
         questions=[
             SessionQuestionOut(
@@ -85,9 +86,26 @@ async def summary_out(db: AsyncSession, session: TrainingSession) -> SessionSumm
 
 @router.post("/sessions", status_code=201)
 async def post_session(body: SessionCreate, db: DB, llm: LLM, settings: AppSettings) -> SessionOut:
-    session = await create_session(
-        db, llm, body.vacancy_id, body.n, max_retries=settings.llm_max_retries
-    )
+    if body.mode == "repeat":
+        assert body.user_id is not None
+        session = await create_repeat_session(
+            db,
+            llm,
+            body.user_id,
+            body.n,
+            settings.progress_thresholds(),
+            max_retries=settings.llm_max_retries,
+        )
+    else:
+        assert body.vacancy_id is not None
+        session = await create_session(
+            db,
+            llm,
+            body.vacancy_id,
+            body.n,
+            topics=body.topics,
+            max_retries=settings.llm_max_retries,
+        )
     return await session_out(db, session)
 
 

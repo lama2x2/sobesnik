@@ -1,14 +1,27 @@
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Query, Response
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from sobesnik_api.db.models import User
-from sobesnik_api.deps import DB, Storage
-from sobesnik_api.schemas import ForgetOut, UserOut
+from sobesnik_api.db.models import TrainingSession, User, Vacancy
+from sobesnik_api.deps import DB, AppSettings, Storage
+from sobesnik_api.errors import NotFoundError
+from sobesnik_api.routes.answers import docs_out
+from sobesnik_api.routes.sessions import summary_out
+from sobesnik_api.schemas import (
+    ForgetOut,
+    ProgressOut,
+    SessionHistoryOut,
+    ThresholdsOut,
+    TopicProgressOut,
+    UserOut,
+)
+from sobesnik_api.services.progress import forget_rest, user_progress
 from sobesnik_api.services.voice import forget_audio
+from sobesnik_core.progress import is_low, sort_key, topic_status
+from sobesnik_core.topics import topic_title
 
 router = APIRouter(tags=["users"])
 
@@ -28,12 +41,81 @@ async def upsert_telegram_user(telegram_id: int, db: DB, response: Response) -> 
     return user
 
 
-@router.delete("/users/{user_id}/data")
+@router.delete("/users/{user_id}/data", response_model_exclude_none=True)
 async def forget_user_data(
-    user_id: uuid.UUID, scope: Literal["audio"], db: DB, storage: Storage
+    user_id: uuid.UUID, scope: Literal["audio", "all"], db: DB, storage: Storage
 ) -> ForgetOut:
-    """Удаляет голосовые записи и их расшифровки (ASR-5, 004 §8.5). `scope=all` — спринт 7."""
-    result = await forget_audio(db, storage, user_id)
-    return ForgetOut(
-        audio_deleted=result.audio_deleted, transcripts_deleted=result.transcripts_deleted
+    """`audio` — голосовые и расшифровки (ASR-5, 004 §8.5); `all` — всё о пользователе (007 §7.3).
+
+    Сначала удаляется аудио из хранилища: если оно недоступно, в БД ничего не трогается.
+    """
+    audio = await forget_audio(db, storage, user_id)
+    out = ForgetOut(
+        audio_deleted=audio.audio_deleted, transcripts_deleted=audio.transcripts_deleted
+    )
+    if scope == "all":
+        rest = await forget_rest(db, user_id)
+        out.answers_deleted = rest.answers
+        out.sessions_deleted = rest.sessions
+        out.vacancies_deleted = rest.vacancies
+    return out
+
+
+@router.get("/users/{user_id}/progress")
+async def read_progress(
+    user_id: uuid.UUID,
+    db: DB,
+    settings: AppSettings,
+    sessions_limit: Annotated[int, Query(ge=0, le=20)] = 5,
+) -> ProgressOut:
+    """Прогресс по темам, слабые темы и последние тренировки (С4, PRG-4, 007 §7.1)."""
+    if await db.get(User, user_id) is None:
+        raise NotFoundError("user_not_found", "пользователь не найден")
+    thresholds = settings.progress_thresholds()
+    progress = await user_progress(db, user_id)
+    topics = [
+        TopicProgressOut(
+            slug=slug,
+            title=topic_title(slug) or slug,
+            status=topic_status(stats, thresholds),
+            low=is_low(stats, thresholds),
+            attempts=stats.attempts,
+            last_score=stats.last_score,
+            avg_last3=round(stats.avg_last3, 1) if stats.avg_last3 is not None else None,
+            docs=docs_out(slug),
+        )
+        for slug, stats in sorted(
+            progress.items(), key=lambda item: (*sort_key(item[1], thresholds), item[0])
+        )
+    ]
+    sessions = await db.scalars(
+        select(TrainingSession)
+        .where(TrainingSession.user_id == user_id)
+        .order_by(TrainingSession.created_at.desc(), TrainingSession.id)
+        .limit(sessions_limit)
+    )
+    history = []
+    for session in sessions:
+        summary = await summary_out(db, session)
+        vacancy = await db.get(Vacancy, session.vacancy_id) if session.vacancy_id else None
+        history.append(
+            SessionHistoryOut(
+                id=session.id,
+                created_at=session.created_at,
+                mode=session.mode,
+                vacancy_title=vacancy.title if vacancy else None,
+                answered=summary.answered,
+                passed=summary.passed,
+                avg_total=summary.avg_total,
+                scores=[q.total for q in summary.questions],
+            )
+        )
+    return ProgressOut(
+        thresholds=ThresholdsOut(
+            min_attempts=thresholds.min_attempts,
+            weak_avg=thresholds.weak_avg,
+            low_score=thresholds.low_score,
+        ),
+        topics=topics,
+        sessions=history,
     )

@@ -1,4 +1,4 @@
-"""Сессия по вакансии: план → N вопросов от LLM → запись в БД (002 §9)."""
+"""Сессия по вакансии или повторение: план → N вопросов от LLM → запись в БД (002 §9, 007 §6)."""
 
 import logging
 import uuid
@@ -9,19 +9,29 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sobesnik_api.db.models import Question, SessionQuestion, TrainingSession, Vacancy
-from sobesnik_api.errors import NotFoundError
+from sobesnik_api.db.models import (
+    Question,
+    Requirement,
+    SessionQuestion,
+    TrainingSession,
+    User,
+    Vacancy,
+)
+from sobesnik_api.errors import ConflictError, NotFoundError, UnprocessableError
+from sobesnik_api.services.progress import user_progress
 from sobesnik_api.services.vacancies import get_vacancy
 from sobesnik_core.checks import question_problems
 from sobesnik_core.generation import questions_prompt
 from sobesnik_core.limits import QUESTION_MAX_TOKENS, QUESTIONS_BASE_MAX_TOKENS
 from sobesnik_core.planning import PlanRequirement, PlanSlot, plan_questions
+from sobesnik_core.progress import Thresholds, repeat_topics
 from sobesnik_core.prompt import load_prompt
 from sobesnik_core.questions import (
     GeneratedQuestion,
     GeneratedQuestions,
     questions_json_schema,
 )
+from sobesnik_core.topics import topic_title
 from sobesnik_core.vacancy import VacancyProfile
 from sobesnik_llm import LLMProvider, LLMRequest, generate_structured
 
@@ -123,42 +133,186 @@ async def create_session(
     vacancy_id: uuid.UUID,
     n: int,
     *,
+    topics: Sequence[str] | None = None,
     max_retries: int = 2,
 ) -> TrainingSession:
+    """Сессия по вакансии; `topics` — только требования с этими темами (007 §6.1)."""
     vacancy = await get_vacancy(db, vacancy_id)
     requirements = vacancy.requirements
+    if topics is not None:
+        unknown = set(topics) - {r.topic_slug for r in requirements}
+        if unknown:
+            raise UnprocessableError(
+                "topics_not_in_vacancy",
+                f"в вакансии нет тем: {', '.join(sorted(unknown))}",
+            )
+        requirements = [r for r in requirements if r.topic_slug in set(topics)]
     asked = await asked_questions(db, vacancy.id)
     asked_by_requirement = Counter(q.requirement_id for q in asked)
+    profile = profile_of(vacancy)
+    profile = profile.model_copy(
+        update={
+            "requirements": [
+                profile.requirements[vacancy.requirements.index(r)] for r in requirements
+            ]
+        }
+    )
     generated = await generate_questions(
         llm,
-        profile_of(vacancy),
+        profile,
         n,
         asked=[q.text for q in asked],
         asked_counts=[asked_by_requirement[r.id] for r in requirements],
         max_retries=max_retries,
     )
 
-    session = TrainingSession(user_id=vacancy.user_id, vacancy_id=vacancy.id)
+    session = TrainingSession(
+        user_id=vacancy.user_id,
+        vacancy_id=vacancy.id,
+        topics=sorted(set(topics)) if topics is not None else None,
+    )
     for position, (slot, item) in enumerate(
         zip(generated.slots, generated.questions, strict=True), start=1
     ):
         requirement = requirements[slot.requirement_index]
-        question = Question(
-            requirement_id=requirement.id,
-            topic_slug=requirement.topic_slug,
-            text=item.text,
-            key_points=list(item.key_points),
-            gen_model=llm.model,
-            prompt_version=generated.prompt_version,
+        session.items.append(
+            SessionQuestion(
+                position=position,
+                question=_question(llm, generated, item, requirement.id, requirement.topic_slug),
+            )
         )
-        session.items.append(SessionQuestion(position=position, question=question))
+    return await _save(db, session, n, generated.attempts)
+
+
+def _question(
+    llm: LLMProvider,
+    generated: GeneratedSession,
+    item: GeneratedQuestion,
+    requirement_id: uuid.UUID | None,
+    topic: str | None,
+) -> Question:
+    return Question(
+        requirement_id=requirement_id,
+        topic_slug=topic,
+        text=item.text,
+        key_points=list(item.key_points),
+        gen_model=llm.model,
+        prompt_version=generated.prompt_version,
+    )
+
+
+async def _save(
+    db: AsyncSession, session: TrainingSession, n: int, attempts: int
+) -> TrainingSession:
     db.add(session)
     await db.commit()
     log.info(
         "session created",
-        extra={"session_id": str(session.id), "n": n, "attempts": generated.attempts},
+        extra={"session_id": str(session.id), "mode": session.mode, "n": n, "attempts": attempts},
     )
     return session
+
+
+REPEAT_TITLE = "Повторение слабых тем"
+
+
+@dataclass(frozen=True)
+class _RepeatSlot:
+    topic: str
+    requirement: Requirement | None
+    """Требование последнего вопроса пользователя по теме; `None` — его удалили."""
+    vacancy: Vacancy | None
+
+
+async def _last_questions_by_topic(
+    db: AsyncSession, user_id: uuid.UUID, topics: Sequence[str]
+) -> list[Question]:
+    """Все вопросы пользователя по темам, от новых к старым."""
+    result = await db.scalars(
+        select(Question)
+        .join(SessionQuestion, SessionQuestion.question_id == Question.id)
+        .join(TrainingSession, TrainingSession.id == SessionQuestion.session_id)
+        .where(TrainingSession.user_id == user_id, Question.topic_slug.in_(topics))
+        .order_by(TrainingSession.created_at.desc(), SessionQuestion.position.desc())
+    )
+    return list(result)
+
+
+async def create_repeat_session(
+    db: AsyncSession,
+    llm: LLMProvider,
+    user_id: uuid.UUID,
+    n: int,
+    thresholds: Thresholds,
+    *,
+    max_retries: int = 2,
+) -> TrainingSession:
+    """Повторение (PRG-3): по одному новому вопросу на слабую тему, тот же промпт (007 §6.2)."""
+    if await db.get(User, user_id) is None:
+        raise NotFoundError("user_not_found", "пользователь не найден")
+    topics = repeat_topics(await user_progress(db, user_id), thresholds, n)
+    if not topics:
+        raise ConflictError("nothing_to_repeat", "слабых тем нет — повторять нечего")
+
+    asked = await _last_questions_by_topic(db, user_id, topics)
+    slots: list[_RepeatSlot] = []
+    for topic in topics:
+        last = next((q for q in asked if q.topic_slug == topic), None)
+        requirement = (
+            await db.get(Requirement, last.requirement_id) if last and last.requirement_id else None
+        )
+        vacancy = await db.get(Vacancy, requirement.vacancy_id) if requirement else None
+        slots.append(_RepeatSlot(topic, requirement, vacancy))
+
+    vacancies = [s.vacancy for s in slots if s.vacancy is not None]
+    latest = max(vacancies, key=lambda v: v.created_at) if vacancies else None
+    stack = list(dict.fromkeys(item for v in vacancies for item in v.stack))
+    profile = VacancyProfile.model_validate(
+        {
+            "title": REPEAT_TITLE,
+            "level": latest.level if latest else "middle",
+            "stack": stack,
+            "requirements": [
+                {
+                    "text": s.requirement.text
+                    if s.requirement
+                    else f"Тема: {topic_title(s.topic) or s.topic}",
+                    "is_required": s.requirement.is_required if s.requirement else True,
+                    "topic": s.topic,
+                }
+                for s in slots
+            ],
+        }
+    )
+    generated = await generate_questions(
+        llm,
+        profile,
+        len(slots),
+        asked=[q.text for q in reversed(asked)],
+        max_retries=max_retries,
+    )
+
+    session = TrainingSession(user_id=user_id, vacancy_id=None, mode="repeat")
+    # план ставит обязательные требования раньше, а повторение идёт от самых слабых тем
+    ordered = sorted(
+        zip(generated.slots, generated.questions, strict=True),
+        key=lambda pair: pair[0].requirement_index,
+    )
+    for position, (slot, item) in enumerate(ordered, start=1):
+        source = slots[slot.requirement_index]
+        session.items.append(
+            SessionQuestion(
+                position=position,
+                question=_question(
+                    llm,
+                    generated,
+                    item,
+                    source.requirement.id if source.requirement else None,
+                    source.topic,
+                ),
+            )
+        )
+    return await _save(db, session, len(slots), generated.attempts)
 
 
 async def get_session(db: AsyncSession, session_id: uuid.UUID) -> TrainingSession:

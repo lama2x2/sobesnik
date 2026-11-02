@@ -25,6 +25,7 @@ from sobesnik_api.export import ExportFilter, select_rows, write_csv
 from sobesnik_api.queue import ArqQueue, TaskQueue
 from sobesnik_api.services.datasets import get_dataset, import_dataset, list_datasets
 from sobesnik_api.services.eval_runs import RunFilter, create_run, get_run, restart_run
+from sobesnik_api.services.progress import rebuild as rebuild_progress
 from sobesnik_api.services.voice import AudioLimits, add_reference_transcript
 from sobesnik_api.settings import Settings
 from sobesnik_core.dataset import DatasetFormatError, parse_jsonl
@@ -88,6 +89,12 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--dataset", help="только ответы этого датасета (имя)")
     export.add_argument("--format", choices=["wide", "long"], default="wide")
     export.add_argument("-o", "--output", type=Path, required=True)
+
+    progress = commands.add_parser("progress", help="прогресс по темам").add_subparsers(
+        dest="action", required=True
+    )
+    rebuild_cmd = progress.add_parser("rebuild", help="пересчитать прогресс из оценок (007 §4)")
+    rebuild_cmd.add_argument("--user", type=uuid.UUID)
     return parser
 
 
@@ -174,6 +181,10 @@ async def run_command(
 
     if args.command == "dataset":
         return await _dataset_command(args, settings, db, queue)
+
+    if args.command == "progress":
+        print(f"строк прогресса: {await rebuild_progress(db, args.user)}")
+        return 0
 
     if args.action == "create":
         eval_config = settings.llm_config("eval")

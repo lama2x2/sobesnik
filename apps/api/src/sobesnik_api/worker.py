@@ -34,6 +34,7 @@ from sobesnik_api.queue import (
 from sobesnik_api.services.answers import IN_PROGRESS
 from sobesnik_api.services.eval_runs import execute_run
 from sobesnik_api.services.evaluation import EvalConfig, evaluate_and_store
+from sobesnik_api.services.progress import update_after_evaluation
 from sobesnik_api.services.voice import answer_audio, cleanup_expired_audio, latest_transcript
 from sobesnik_api.settings import Settings
 from sobesnik_asr import (
@@ -225,6 +226,8 @@ async def process_answer(deps: WorkerDeps, answer_id: uuid.UUID, job_try: int = 
             )
             raise Retry(defer=retry_delay(job_try)) from None
         status = "done" if evaluation.status == "done" else "failed"
+        if status == "done":
+            await update_after_evaluation(db, answer)
         await _set_status(deps, db, answer, status, evaluation.error)
 
 

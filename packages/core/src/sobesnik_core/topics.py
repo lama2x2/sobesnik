@@ -99,6 +99,13 @@ def load_topics() -> TopicCatalog:
     return parse_catalog(yaml.safe_load(text))
 
 
+def topic_title(slug: str | None) -> str | None:
+    """Заголовок темы справочника; неизвестная тема — `None`."""
+    if slug is None:
+        return None
+    return next((t.title for t in load_topics().all() if t.slug == slug), None)
+
+
 DOC_TITLE_MAX = 60
 DOCS_PER_TOPIC = (1, 3)
 

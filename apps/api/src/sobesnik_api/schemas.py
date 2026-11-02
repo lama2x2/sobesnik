@@ -1,10 +1,17 @@
-"""Схемы запросов и ответов API (001 §8, 002 §11, 003 §10)."""
+"""Схемы запросов и ответов API (001 §8, 002 §11, 003 §10, 007 §7)."""
 
 import uuid
 from datetime import date, datetime
 from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    computed_field,
+    model_validator,
+)
 
 from sobesnik_core.limits import (
     ANSWER_MAX_CHARS,
@@ -13,6 +20,7 @@ from sobesnik_core.limits import (
     QUESTIONS_MAX,
     QUESTIONS_MIN,
 )
+from sobesnik_core.topics import topic_title
 from sobesnik_core.vacancy import Level
 
 MAX_HTML_CHARS = 3 * 1024 * 1024
@@ -73,6 +81,12 @@ class RequirementOut(BaseModel):
     is_required: bool
     topic: str | None = Field(validation_alias="topic_slug")
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def topic_title(self) -> str | None:
+        """Заголовок темы — для кнопок выбора тем в боте (007 §8.3)."""
+        return topic_title(self.topic)
+
 
 class VacancyOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -91,8 +105,21 @@ class VacancyOut(BaseModel):
 
 
 class SessionCreate(BaseModel):
-    vacancy_id: uuid.UUID
+    """`{vacancy_id, n, topics?}` — по вакансии; `{mode: "repeat", user_id, n}` (007 §6)."""
+
+    mode: Literal["vacancy", "repeat"] = "vacancy"
+    vacancy_id: uuid.UUID | None = None
+    user_id: uuid.UUID | None = None
     n: int = Field(default=QUESTIONS_DEFAULT, ge=QUESTIONS_MIN, le=QUESTIONS_MAX)
+    topics: list[str] | None = Field(default=None, min_length=1, max_length=QUESTIONS_MAX)
+
+    @model_validator(mode="after")
+    def by_mode(self) -> Self:
+        if self.mode == "vacancy" and self.vacancy_id is None:
+            raise ValueError("для сессии по вакансии нужен vacancy_id")
+        if self.mode == "repeat" and (self.user_id is None or self.topics is not None):
+            raise ValueError("для повторения нужен user_id, а topics не задаются")
+        return self
 
 
 class SessionAnswerOut(BaseModel):
@@ -119,6 +146,7 @@ class SessionOut(BaseModel):
     id: uuid.UUID
     vacancy_id: uuid.UUID | None
     mode: str
+    topics: list[str] | None = None
     status: str
     questions: list[SessionQuestionOut]
 
@@ -186,11 +214,58 @@ class AnswerOut(BaseModel):
     audio: AudioOut | None = None
     transcript: TranscriptOut | None = None
     evaluation: EvaluationOut | None
+    topic: str | None = None
+    docs: list["TopicDocOut"] = []
+    """До двух ссылок «что почитать» по теме вопроса (007 §7.2)."""
+
+
+class TopicDocOut(BaseModel):
+    title: str
+    url: str
 
 
 class ForgetOut(BaseModel):
     audio_deleted: int
     transcripts_deleted: int
+    answers_deleted: int | None = None
+    sessions_deleted: int | None = None
+    vacancies_deleted: int | None = None
+    """Поля `*_deleted` кроме аудио и расшифровок — только при `scope=all` (007 §7.3)."""
+
+
+class ThresholdsOut(BaseModel):
+    min_attempts: int
+    weak_avg: float
+    low_score: float
+
+
+class TopicProgressOut(BaseModel):
+    slug: str
+    title: str
+    status: Literal["weak", "few", "ok"]
+    low: bool
+    """«Мало данных», но балл низкий — «похоже, стоит повторить»."""
+    attempts: int
+    last_score: int | None
+    avg_last3: float | None
+    docs: list[TopicDocOut]
+
+
+class SessionHistoryOut(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    mode: str
+    vacancy_title: str | None
+    answered: int
+    passed: int
+    avg_total: float | None
+    scores: list[int | None]
+
+
+class ProgressOut(BaseModel):
+    thresholds: ThresholdsOut
+    topics: list[TopicProgressOut]
+    sessions: list[SessionHistoryOut]
 
 
 class SummaryQuestionOut(BaseModel):

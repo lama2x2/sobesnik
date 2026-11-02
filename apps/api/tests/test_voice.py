@@ -583,7 +583,7 @@ async def test_forget_audio(
     again = await client.delete(url)
     assert again.json() == {"audio_deleted": 0, "transcripts_deleted": 0}
     assert (await client.delete(f"/users/{uuid.uuid4()}/data?scope=audio")).status_code == 404
-    assert (await client.delete(url.replace("audio", "all"))).status_code == 422
+    assert (await client.delete(url.replace("audio", "video"))).status_code == 422
 
 
 async def test_expired_audio_cannot_be_transcribed(

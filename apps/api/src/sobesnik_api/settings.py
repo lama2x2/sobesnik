@@ -6,6 +6,7 @@ from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from sobesnik_asr import ASRConfig, ASRProviderName, AudioStorage, S3AudioStorage
+from sobesnik_core.progress import Thresholds
 from sobesnik_llm import LLMConfig, ProviderName, StructuredMode
 
 Role = Literal["gen", "eval"]
@@ -70,6 +71,11 @@ class Settings(BaseSettings):
     # События смены статуса ответа для бота (006 §6)
     answer_events_stream: str = "sobesnik:answer-events"
 
+    # Прогресс по темам (PRG-2, 007 §5)
+    progress_min_attempts: int = 2
+    progress_weak_avg: float = 60
+    progress_low_score: float = 60
+
     fetch_timeout_s: float = 10.0
     fetch_allow_private: bool = False
     fetch_allow_networks: str = ""
@@ -96,6 +102,13 @@ class Settings(BaseSettings):
     def empty_is_none(cls, value: object) -> object:
         """`LLM_GEN_MODEL=` или `ADMIN_TOKEN=` в .env означает «не задано», а не пустую строку."""
         return None if value == "" else value
+
+    def progress_thresholds(self) -> Thresholds:
+        return Thresholds(
+            min_attempts=self.progress_min_attempts,
+            weak_avg=self.progress_weak_avg,
+            low_score=self.progress_low_score,
+        )
 
     @property
     def asr_language_code(self) -> str | None:

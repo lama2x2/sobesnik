@@ -1,4 +1,4 @@
-"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7, 004 §7, 005 §7."""
+"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7, 004 §7, 005 §7, 007 §10."""
 
 import uuid
 from datetime import datetime
@@ -32,7 +32,7 @@ def _in(column: str, values: tuple[str, ...]) -> str:
 
 QUESTION_SOURCES = ("generated", "dataset")
 VACANCY_SOURCES = ("text", "url", "html")
-SESSION_MODES = ("vacancy",)
+SESSION_MODES = ("vacancy", "repeat")
 SESSION_STATUSES = ("active", "finished")
 ANSWER_SOURCES = ("user", "dataset")
 ANSWER_KINDS = ("text", "voice")
@@ -183,6 +183,8 @@ class TrainingSession(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     vacancy_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vacancy.id"))
     mode: Mapped[str] = mapped_column(Text, default="vacancy")
+    topics: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    """Темы, выбранные перед тренировкой (007 §6.1); `null` — все темы вакансии."""
     status: Mapped[str] = mapped_column(Text, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -360,3 +362,21 @@ class Evaluation(Base):
     tokens_out: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TopicProgress(Base):
+    """Прогресс пользователя по теме (PRG-1, 007 §4). Статус темы считается при чтении."""
+
+    __tablename__ = "topic_progress"
+    __table_args__ = (PrimaryKeyConstraint("user_id", "topic_slug"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    topic_slug: Mapped[str] = mapped_column(_topic_fk())
+    attempts: Mapped[int] = mapped_column(Integer)
+    last_scores: Mapped[list[int]] = mapped_column(ARRAY(Integer))
+    """До трёх последних баллов, новые первыми."""
+    last_score: Mapped[int] = mapped_column(Integer)
+    avg_last3: Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
