@@ -30,10 +30,14 @@ services:
       timeout: 3s
       retries: 30
 
-  # Очередь arq. Без тома: незавершённое воркер подхватывает из БД при старте (003 §8.3).
+  # Очередь arq, события статуса ответа и состояние бота.
   # 7.2 — последняя ветка Redis под BSD-лицензией.
   redis:
     image: redis:7.2-alpine
+    # AOF и том: состояние бота и непрочитанные события переживают перезапуск (006 §7.3)
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
@@ -95,6 +99,20 @@ services:
       - asr-models:/models
     restart: unless-stopped
 
+  # Telegram-бот (006): long polling, тонкий клиент API. Без TELEGRAM_BOT_TOKEN выходит с кодом 0.
+  bot:
+    <<: *app
+    build:
+      context: .
+      target: runtime
+    command: ["python", "-m", "sobesnik_bot"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: on-failure
+
   # Тесты, линтеры, CLI: docker compose run --rm tools uv run pytest
   tools:
     <<: *app
@@ -114,5 +132,6 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
   s3data:
   asr-models:
