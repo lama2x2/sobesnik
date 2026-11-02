@@ -139,6 +139,8 @@ def test_repair_asr_doubts() -> None:
     assert fixed.asr_doubts == ["распознано «асинк»", "п0", "п1", "п2", "п3"]
     long = make_repair(3, "voice")(output(asr_doubts=["x" * 500]))
     assert len(long.asr_doubts[0]) == 200
+    typo = make_repair(3, "voice")(output(asr_doubts=["распизнано «рак» — возможно, RAG"]))
+    assert typo.asr_doubts == ["распознано «рак» — возможно, RAG"]
     # у текстового ответа сомнений в распознавании не бывает
     assert make_repair(3)(output(asr_doubts=["что-то"])).asr_doubts == []
 

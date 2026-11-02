@@ -2,6 +2,7 @@
 промпт, итог."""
 
 import logging
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -86,10 +87,14 @@ def _clean_points(numbers: Sequence[int], count: int) -> list[int]:
     return sorted({n for n in numbers if 1 <= n <= count})
 
 
+_RECOGNIZED_TYPO = re.compile(r"^распи[зс]нано", re.IGNORECASE)
+"""Маленькая модель путает «распознано» с похожим словом — пользователь это видит (005 «Итоги»)."""
+
+
 def _clean_doubts(doubts: Sequence[str]) -> list[str]:
     cleaned: list[str] = []
     for doubt in doubts:
-        text = " ".join(doubt.split())[:ASR_DOUBT_MAX_CHARS]
+        text = _RECOGNIZED_TYPO.sub("распознано", " ".join(doubt.split()))[:ASR_DOUBT_MAX_CHARS]
         if text and text not in cleaned:
             cleaned.append(text)
     return cleaned[:ASR_DOUBTS_MAX]

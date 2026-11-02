@@ -1,6 +1,6 @@
 # 000. Общая спецификация Sobesnik
 
-Статус: актуальна на 01.11.2026, после спринта 4. Детали реализации — в спеках 001–004.
+Статус: актуальна на 02.11.2026, после спринта 5. Детали реализации — в спеках 001–005.
 
 Документ задаёт рамку: что строим, из каких частей и как поймём, что MVP готов.
 Детальные спеки модулей (`001-…`, `002-…`) пишутся перед стартом соответствующего спринта
@@ -132,7 +132,8 @@ Sobesnik — self-hosted тренажёр технических собесед�
 - EVAL-7. Выгрузка оценок в CSV: одна строка на пару «оценка × критерий» или «оценка» (длинный и широкий формат).
   Вместе с ответом выгружаются эталон и человеческая оценка из датасета, если они есть.
 - EVAL-8. Импорт открытого датасета из JSONL в едином формате (вопрос, эталонный ответ, ответ, человеческие оценки,
-  шкала, язык, источник, лицензия). Для каждого источника пишется конвертер в `research/`.
+  шкала, язык, источник, лицензия). Для каждого источника пишется конвертер в `research/`. Ответ датасета получает
+  статус `imported` и оценивается только прогонами; голосовой ответ датасета распознаётся тем же воркером (005 §6–7).
 
 ### 4.5. Прогресс и повторение (PRG)
 - PRG-1. После каждой оценки пересчитывается прогресс темы: число попыток, последний балл, среднее по трём последним.
@@ -267,16 +268,16 @@ flowchart TB
 | `topic` | slug (PK), title, parent_slug — справочник, синхронизируется из YAML |
 | `vacancy` | id, user_id, raw_text, source `text\|url\|html`, source_url (null), title, level, stack text[], parser_model, prompt_version, created_at |
 | `requirement` | id, vacancy_id, text, topic_slug, is_required |
-| `question` | id, topic_slug, requirement_id (null), text, key_points jsonb, reference_answer (null), source `generated\|bank\|dataset`, dataset_item_id (null), gen_model, prompt_version |
+| `question` | id, topic_slug, requirement_id (null), text, key_points jsonb, reference_answer (null), source `generated\|dataset`, dataset_id (null), external_id (null), gen_model, prompt_version |
 | `session` | id, user_id, vacancy_id (null), mode `vacancy\|repeat`, status, created_at, finished_at |
 | `session_question` | session_id, question_id, position |
-| `answer` | id, question_id, session_id (null), user_id (null), source `user\|dataset`, kind `text\|voice`, text (null), status, error (null), created_at, updated_at |
+| `answer` | id, question_id, session_id (null), user_id (null), source `user\|dataset`, dataset_item_id (null), kind `text\|voice`, text (null), status (+ `imported` у ответов датасета), error (null), created_at, updated_at |
 | `audio` | id, answer_id (unique), s3_key, mime, size_bytes, duration_s, expires_at, deleted_at |
 | `transcript` | id, audio_id, kind `asr\|reference`, text, language, language_prob, asr_model (null), avg_logprob, latency_ms, params jsonb, created_at |
 | `evaluation` | id, answer_id, transcript_id (null), eval_run_id (null), rubric_version, provider, model, prompt_version, params jsonb, scores jsonb, total, passed, feedback jsonb (missed_points, wrong_points, advice, asr_doubts), raw_response, attempts, latency_ms, tokens_in, tokens_out, status `done\|failed`, error, created_at |
-| `eval_run` | id, name, provider, model, rubric_version, prompt_version, transcript_kind (null — как в бою, `asr`, `reference`), filter jsonb, status, total, done, failed, error, created_at, finished_at |
-| `dataset` | id, name, source_url, license, lang, score_scale, imported_at |
-| `dataset_item` | id, dataset_id, external_id, human_scores jsonb — связывает импортированные вопросы и ответы с исходником |
+| `eval_run` | id, name, provider, model, rubric_version, prompt_version, transcript_kind (null — как в бою, `asr`, `reference`), filter jsonb (сессия, пользователь, период, датасет), params jsonb (null; переопределённые temperature и seed), status, total, done, failed, error, created_at, finished_at |
+| `dataset` | id, name (unique), source_url, license, lang, score_key, score_min, score_max, synthetic, note, imported_at |
+| `dataset_item` | id, dataset_id, external_id, human_scores jsonb — один ответ датасета с его оценками (005 §3 п. 1) |
 | `topic_progress` | user_id, topic_slug, attempts, last_score, avg_last3, is_weak, updated_at |
 
 Ответ из датасета — обычный `answer` с `source = dataset` и без пользователя. Благодаря этому
@@ -335,7 +336,10 @@ flowchart TB
   `missed_points[]` и `wrong_points[]` — номера ключевых пунктов (упущенные и, по мнению оценщика, фактически
   неверные; неверный пункт не считается упущенным), и `advice`. Тексты пунктов подставляет код. Итог и признак
   «пройден» считает код, а не модель (003 §6).
-- Для сравнения со шкалами датасетов (например 0–5) правило перевода фиксируется в спеке спринта 5.
+- Эталон для полноты в промпте — с версии `evaluate_answer/v3` (005 §10).
+- Перевод шкал (005 §11.1): для MAE оценка датасета переводится в 0–100 (`(h − min) / (max − min) × 100`),
+  для QWK итог модели — в целую категорию шкалы датасета (`round(total / 100 × (max − min) + min)`),
+  Спирмен считается на исходных числах.
 
 ## 10. Заделы под проверку качества
 
@@ -349,10 +353,9 @@ flowchart TB
 5. Импорт открытого датасета в единый JSONL-формат (EVAL-8). Ответы из датасета проходят тот же конвейер.
 6. Выгрузка в CSV со всеми полями, нужными для анализа в `research/` (EVAL-7).
 
-Кандидаты в открытые данные (лицензии проверяются в спринте 5):
-- short answer grading с человеческими оценками: Mohler (CS, данные структур), SemEval-2013 Task 7 (SciEntsBank, Beetle);
-- русскоязычные банки вопросов с ответами на GitHub (Python, Java, базы данных);
-- речь для проверки ASR: Golos, Common Voice (ru), а также собственные записи ответов с ручной расшифровкой.
+Открытые данные (выбраны и проверены в спринте 5, 005 §5): Mohler ASAG (CC BY 4.0, оценки людей 0–5),
+русский банк вопросов yakimka/python_interview_questions (MIT, «лестница» ответов известного качества) и
+фрагменты записей собеседований автора (только локально). SemEval-2013 Task 7 отклонён: оценки категориальные.
 
 ## 11. Критерии приёмки MVP
 
@@ -378,6 +381,7 @@ flowchart TB
 - Темы — фиксированный справочник (сид из YAML, 60–100 тем). LLM выбирает тему из списка, а не придумывает новую.
   Иначе прогресс по темам не агрегируется.
 - Модель по умолчанию — `qwen3.5:4b` (выбрана в спринте 2: 7–9B вместе с Docker загоняли Mac с 16 ГБ в swap).
-  Пересматривается по итогам спринта 5.
+  Подтверждена в спринте 5: лучшее согласие с людьми на Mohler (ρ = 0,84) среди 4 моделей; запасная — `gemma3:4b`
+  ([research/README.md](../../research/README.md)).
 - Раз экспертов нет, оценки проверяются так: человеческие оценки из открытых датасетов, согласованность моделей
   между собой, стабильность при повторном прогоне и влияние ASR (эталонный транскрипт против ASR).

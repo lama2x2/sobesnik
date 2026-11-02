@@ -51,6 +51,8 @@ def test_mohler_convert(tmp_path: Path) -> None:
     assert items[0]["reference_answer"] == "LIFO & push/pop."
     assert items[0]["answer"] == "Last in, first out."
     parsed = parse_jsonl(dump_jsonl(mohler.META, items).splitlines())
+    exam = {"score_grader_1": 7.5, "score_grader_2": 3.0, "score_avg": 3.0}
+    assert mohler.human_scores(exam) == {"avg": 3.0}  # 0–10 вперемешку с 0–5
     assert parsed.items[0].human_scores == {"grader_1": 4.0, "grader_2": 5.0, "avg": 4.5}
 
 

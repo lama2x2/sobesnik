@@ -79,9 +79,15 @@ docker compose run --rm tools uv run pytest -m asr     # живое распоз
 docker compose run --rm tools uv run python research/asr_check/check.py --asr-only  # замер whisper
 docker compose run --rm tools uv run python research/asr_check/check.py  # голосовой ответ через API
 docker compose run --rm tools uv run sobesnik-cli transcript add ANSWER_ID --file ref.txt
+docker compose run --rm tools uv run python research/datasets/mohler.py   # открытый датасет → JSONL
+docker compose run --rm tools uv run sobesnik-cli dataset import research/data/datasets/mohler.jsonl --sample 30
+docker compose run --rm tools uv run sobesnik-cli eval-run create --name N --dataset mohler-30 --model gemma3:4b --wait
+docker compose run --rm tools uv run python research/quality/report.py research/data/quality/*.csv -o research/data/quality/report.md
 ```
 
 Тестовые записи — только фрагменты в `research/data/asr_check/` (`research/asr_check/cut.sh` на хосте).
+Выводы о качестве оценки и порядок воспроизведения — `research/README.md`. Эталонные расшифровки
+(`research/quality/reference_asr.py`) берут whisper `large-v3` из кэша Hugging Face хоста (смонтирован в `tools` в `/hf`).
 Модели whisper лежат в томе `asr-models`, хранилище аудио — сервис `s3` (RustFS, S3-совместимый).
 
 После живых прогонов модели выгружаются: `ollama stop <модель>` (Мак 16 ГБ греется).

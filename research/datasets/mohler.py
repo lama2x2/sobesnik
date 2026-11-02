@@ -40,8 +40,10 @@ META = {
     "score_min": 0,
     "score_max": 5,
     "synthetic": False,
-    "note": "Mohler, Bunescu, Mihalcea, ACL-HLT 2011; open_ended, raw",
+    "note": "Mohler, Bunescu, Mihalcea, ACL-HLT 2011; open_ended, raw; "
+    "grader_1/2 только у заданий E01–E10",
 }
+META_MAX = 5
 
 _BREAK = re.compile(r"<br\s*/?>|</?p>", re.IGNORECASE)
 _TAG = re.compile(r"<[^>]+>")
@@ -70,6 +72,15 @@ def download() -> list[dict[str, Any]]:
                 return rows
 
 
+def human_scores(row: dict[str, Any]) -> dict[str, float]:
+    """`avg` — всегда 0–5. Оценки отдельных людей на экзаменах (E11, E12) стоят то в 0–10, то в
+    0–5 вперемешку, поэтому берутся только у заданий, где обе в 0–5."""
+    scores = {"avg": row["score_avg"]}
+    if max(row["score_grader_1"], row["score_grader_2"]) <= META_MAX:
+        scores |= {"grader_1": row["score_grader_1"], "grader_2": row["score_grader_2"]}
+    return scores
+
+
 def convert(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items = []
     for row in rows:
@@ -84,11 +95,7 @@ def convert(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "question": clean(row["question"]),
                 "reference_answer": clean(row["instructor_answer"]),
                 "answer": answer,
-                "human_scores": {
-                    "grader_1": row["score_grader_1"],
-                    "grader_2": row["score_grader_2"],
-                    "avg": row["score_avg"],
-                },
+                "human_scores": human_scores(row),
             }
         )
     return items
