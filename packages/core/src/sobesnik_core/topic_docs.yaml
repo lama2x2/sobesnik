@@ -1,0 +1,343 @@
+# «Что почитать» по темам (007 §9). Ключ — листовая тема из topics.yaml, 1–3 ссылки.
+# Сначала официальная документация, потом известные открытые руководства; русские — если есть хорошие.
+# Каждая ссылка открыта и прочитана при сборе (02.11.2026). Храним только адрес и название.
+# Модель приложения ссылки не придумывает и сюда не пишет. Проверка: pytest -m network.
+
+python.data_model:
+  - {title: "Модель данных — документация Python", url: "https://docs.python.org/3/reference/datamodel.html"}
+python.collections:
+  - {title: "Встроенные типы — документация Python", url: "https://docs.python.org/3/builtins/stdtypes.html"}
+  - {title: "Сложность операций коллекций — Python Wiki", url: "https://wiki.python.org/python/language/TimeComplexity.html"}
+python.functions:
+  - {title: "Определение функций — документация Python", url: "https://docs.python.org/3/reference/compound_stmts.html#function-definitions"}
+  - {title: "PEP 318: декораторы", url: "https://peps.python.org/pep-0318/"}
+python.iterators:
+  - {title: "Итераторы и генераторы — Functional HOWTO", url: "https://docs.python.org/3/howto/functional.html"}
+  - {title: "contextlib — контекстные менеджеры", url: "https://docs.python.org/3/library/contextlib.html"}
+python.oop:
+  - {title: "Классы — учебник Python", url: "https://docs.python.org/3/tutorial/classes.html"}
+  - {title: "Дескрипторы — руководство Python", url: "https://docs.python.org/3/howto/descriptor.html"}
+  - {title: "Порядок разрешения методов (MRO)", url: "https://docs.python.org/3/howto/mro.html"}
+python.asyncio:
+  - {title: "asyncio — документация Python", url: "https://docs.python.org/3/library/asyncio.html"}
+  - {title: "Корутины и задачи asyncio", url: "https://docs.python.org/3/library/asyncio-task.html"}
+python.concurrency:
+  - {title: "threading — потоки в Python", url: "https://docs.python.org/3/library/threading.html"}
+  - {title: "multiprocessing — процессы в Python", url: "https://docs.python.org/3/library/multiprocessing.html"}
+  - {title: "concurrent.futures — пулы потоков и процессов", url: "https://docs.python.org/3/library/concurrent.futures.html"}
+python.typing:
+  - {title: "typing — документация Python", url: "https://docs.python.org/3/library/typing.html"}
+  - {title: "mypy: начало работы", url: "https://mypy.readthedocs.io/en/stable/getting_started.html"}
+python.memory:
+  - {title: "gc — сборщик мусора Python", url: "https://docs.python.org/3/library/gc.html"}
+  - {title: "Управление памятью в CPython (C API)", url: "https://docs.python.org/3/c-api/memory.html"}
+  - {title: "Устройство сборщика мусора CPython", url: "https://github.com/python/cpython/blob/main/InternalDocs/garbage_collector.md"}
+python.web_frameworks:
+  - {title: "FastAPI — документация на русском", url: "https://fastapi.tiangolo.com/ru/"}
+  - {title: "Django: обзор", url: "https://docs.djangoproject.com/en/stable/intro/overview/"}
+  - {title: "Flask: быстрый старт", url: "https://flask.palletsprojects.com/en/stable/quickstart/"}
+python.general:
+  - {title: "Учебник Python", url: "https://docs.python.org/3/tutorial/index.html"}
+  - {title: "PEP 8: стиль кода Python", url: "https://peps.python.org/pep-0008/"}
+
+jvm.core:
+  - {title: "Java Tutorials: язык Java", url: "https://docs.oracle.com/javase/tutorial/java/index.html"}
+  - {title: "Object: equals и hashCode — Java SE 21", url: "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/lang/Object.html"}
+jvm.collections:
+  - {title: "Java Tutorials: коллекции", url: "https://docs.oracle.com/javase/tutorial/collections/index.html"}
+  - {title: "Collections Framework — Dev.java", url: "https://dev.java/learn/api/collections-and-streams/collections-framework/"}
+jvm.concurrency:
+  - {title: "Java Tutorials: многопоточность", url: "https://docs.oracle.com/javase/tutorial/essential/concurrency/index.html"}
+  - {title: "java.util.concurrent — Java SE 21", url: "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/package-summary.html"}
+jvm.memory:
+  - {title: "Сборка мусора в HotSpot: введение", url: "https://docs.oracle.com/en/java/javase/21/gctuning/introduction-garbage-collection-tuning.html"}
+  - {title: "Устройство JVM: области памяти (JVMS гл. 2)", url: "https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-2.html"}
+jvm.spring:
+  - {title: "Spring Boot — документация", url: "https://docs.spring.io/spring-boot/index.html"}
+  - {title: "IoC-контейнер Spring", url: "https://docs.spring.io/spring-framework/reference/core/beans.html"}
+jvm.kotlin:
+  - {title: "Kotlin: null-safety", url: "https://kotlinlang.org/docs/null-safety.html"}
+  - {title: "Kotlin: корутины", url: "https://kotlinlang.org/docs/coroutines-overview.html"}
+jvm.general:
+  - {title: "Учебные материалы Dev.java", url: "https://dev.java/learn/"}
+  - {title: "Спецификации Java SE", url: "https://docs.oracle.com/javase/specs/"}
+
+go.concurrency:
+  - {title: "Tour of Go: конкурентность", url: "https://go.dev/tour/concurrency/1"}
+  - {title: "Effective Go: конкурентность", url: "https://go.dev/doc/effective_go#concurrency"}
+  - {title: "Пакет sync", url: "https://pkg.go.dev/sync"}
+go.types:
+  - {title: "Effective Go: интерфейсы и типы", url: "https://go.dev/doc/effective_go#interfaces_and_types"}
+  - {title: "Обработка ошибок в Go — блог Go", url: "https://go.dev/blog/error-handling-and-go"}
+go.runtime:
+  - {title: "Руководство по сборщику мусора Go", url: "https://go.dev/doc/gc-guide"}
+  - {title: "Модель памяти Go", url: "https://go.dev/ref/mem"}
+go.context:
+  - {title: "Пакет context", url: "https://pkg.go.dev/context"}
+  - {title: "Паттерны context — блог Go", url: "https://go.dev/blog/context"}
+go.general:
+  - {title: "Tour of Go", url: "https://go.dev/tour/"}
+  - {title: "Effective Go", url: "https://go.dev/doc/effective_go"}
+
+frontend.js_core:
+  - {title: "Замыкания — learn.javascript.ru", url: "https://learn.javascript.ru/closure"}
+  - {title: "Методы объекта и this — learn.javascript.ru", url: "https://learn.javascript.ru/object-methods"}
+  - {title: "Прототипное наследование — learn.javascript.ru", url: "https://learn.javascript.ru/prototype-inheritance"}
+frontend.event_loop:
+  - {title: "Событийный цикл — learn.javascript.ru", url: "https://learn.javascript.ru/event-loop"}
+  - {title: "async/await — learn.javascript.ru", url: "https://learn.javascript.ru/async-await"}
+  - {title: "Цикл событий — MDN", url: "https://developer.mozilla.org/ru/docs/Web/JavaScript/Reference/Execution_model"}
+frontend.typescript:
+  - {title: "TypeScript Handbook", url: "https://www.typescriptlang.org/docs/handbook/intro.html"}
+  - {title: "TypeScript: повседневные типы", url: "https://www.typescriptlang.org/docs/handbook/2/everyday-types.html"}
+frontend.react:
+  - {title: "React: быстрый старт (на русском)", url: "https://ru.react.dev/learn"}
+  - {title: "Встроенные хуки React", url: "https://react.dev/reference/react/hooks"}
+frontend.frameworks:
+  - {title: "Vue.js: введение (на русском)", url: "https://ru.vuejs.org/guide/introduction.html"}
+  - {title: "Что такое Angular", url: "https://angular.dev/overview"}
+frontend.state:
+  - {title: "Управление состоянием — React", url: "https://react.dev/learn/managing-state"}
+  - {title: "Зачем нужен Redux", url: "https://redux.js.org/understanding/thinking-in-redux/motivation"}
+frontend.browser:
+  - {title: "Критические этапы рендеринга — MDN", url: "https://developer.mozilla.org/ru/docs/Web/Performance/Guides/Critical_rendering_path"}
+  - {title: "Документ и DOM — learn.javascript.ru", url: "https://learn.javascript.ru/document"}
+frontend.css:
+  - {title: "Основы CSS — MDN", url: "https://developer.mozilla.org/ru/docs/Learn_web_development/Core/Styling_basics"}
+  - {title: "CSS Grid Layout — MDN", url: "https://developer.mozilla.org/ru/docs/Web/CSS/Guides/Grid_layout"}
+  - {title: "Полное руководство по Flexbox — CSS-Tricks", url: "https://css-tricks.com/snippets/css/a-guide-to-flexbox/"}
+frontend.general:
+  - {title: "Изучение веб-разработки — MDN", url: "https://developer.mozilla.org/ru/docs/Learn_web_development"}
+  - {title: "Современный учебник JavaScript", url: "https://learn.javascript.ru/"}
+
+lang.csharp:
+  - {title: "Руководство по C# — Microsoft Learn", url: "https://learn.microsoft.com/ru-ru/dotnet/csharp/"}
+  - {title: "Общие сведения о .NET — Microsoft Learn", url: "https://learn.microsoft.com/ru-ru/dotnet/core/introduction"}
+lang.cpp:
+  - {title: "cppreference — справочник C и C++", url: "https://en.cppreference.com/"}
+  - {title: "C++ Core Guidelines", url: "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines"}
+  - {title: "Learn C++", url: "https://www.learncpp.com/"}
+lang.php:
+  - {title: "Руководство PHP", url: "https://www.php.net/manual/ru/"}
+  - {title: "PHP: The Right Way", url: "https://phptherightway.com/"}
+lang.rust:
+  - {title: "The Rust Programming Language", url: "https://doc.rust-lang.org/book/"}
+  - {title: "Rust: владение и заимствование", url: "https://doc.rust-lang.org/book/ch04-00-understanding-ownership.html"}
+lang.general:
+  - {title: "Парадигмы программирования — Википедия", url: "https://ru.wikipedia.org/wiki/Парадигма_программирования"}
+
+mobile.ios:
+  - {title: "The Swift Programming Language", url: "https://docs.swift.org/swift-book/documentation/the-swift-programming-language/"}
+  - {title: "SwiftUI — Apple Developer", url: "https://developer.apple.com/documentation/swiftui"}
+  - {title: "Жизненный цикл приложения iOS", url: "https://developer.apple.com/documentation/uikit/managing-your-app-s-life-cycle"}
+mobile.android:
+  - {title: "Жизненный цикл Activity", url: "https://developer.android.com/guide/components/activities/activity-lifecycle"}
+  - {title: "Архитектура Android-приложения", url: "https://developer.android.com/topic/architecture"}
+  - {title: "Android Jetpack", url: "https://developer.android.com/jetpack"}
+mobile.cross:
+  - {title: "Документация Flutter", url: "https://docs.flutter.dev/"}
+  - {title: "React Native: введение", url: "https://reactnative.dev/docs/getting-started"}
+mobile.general:
+  - {title: "Android: первое приложение", url: "https://developer.android.com/get-started/overview"}
+  - {title: "Документация Apple Developer", url: "https://developer.apple.com/documentation/"}
+
+db.sql:
+  - {title: "PostgreSQL: язык SQL", url: "https://postgrespro.ru/docs/postgresql/17/tutorial-sql"}
+  - {title: "PostgreSQL: запросы", url: "https://postgrespro.ru/docs/postgresql/17/queries"}
+  - {title: "PostgreSQL: оконные функции", url: "https://postgrespro.ru/docs/postgresql/17/tutorial-window"}
+db.indexes:
+  - {title: "PostgreSQL: индексы", url: "https://postgrespro.ru/docs/postgresql/17/indexes"}
+  - {title: "PostgreSQL: EXPLAIN", url: "https://postgrespro.ru/docs/postgresql/17/using-explain"}
+  - {title: "Use The Index, Luke", url: "https://use-the-index-luke.com/"}
+db.transactions:
+  - {title: "PostgreSQL: изоляция транзакций", url: "https://postgrespro.ru/docs/postgresql/17/transaction-iso"}
+  - {title: "PostgreSQL: явные блокировки", url: "https://postgrespro.ru/docs/postgresql/17/explicit-locking"}
+  - {title: "PostgreSQL: конкурентный доступ (MVCC)", url: "https://postgrespro.ru/docs/postgresql/17/mvcc"}
+db.modeling:
+  - {title: "Нормальная форма — Википедия", url: "https://ru.wikipedia.org/wiki/Нормальная_форма"}
+  - {title: "PostgreSQL: ограничения", url: "https://postgrespro.ru/docs/postgresql/17/ddl-constraints"}
+db.query_optimization:
+  - {title: "PostgreSQL: оптимизация производительности", url: "https://postgrespro.ru/docs/postgresql/17/performance-tips"}
+  - {title: "Use The Index, Luke: оглавление", url: "https://use-the-index-luke.com/sql/table-of-contents"}
+db.nosql:
+  - {title: "Моделирование данных в MongoDB", url: "https://www.mongodb.com/docs/manual/data-modeling/"}
+  - {title: "Типы данных Redis", url: "https://redis.io/docs/latest/develop/data-types/"}
+  - {title: "Архитектура Apache Cassandra", url: "https://cassandra.apache.org/doc/latest/cassandra/architecture/overview.html"}
+db.scaling:
+  - {title: "PostgreSQL: репликация и отказоустойчивость", url: "https://postgrespro.ru/docs/postgresql/17/high-availability"}
+  - {title: "PostgreSQL: секционирование таблиц", url: "https://postgrespro.ru/docs/postgresql/17/ddl-partitioning"}
+  - {title: "Шардирование — MongoDB", url: "https://www.mongodb.com/docs/manual/sharding/"}
+db.orm:
+  - {title: "SQLAlchemy ORM: быстрый старт", url: "https://docs.sqlalchemy.org/en/20/orm/quickstart.html"}
+  - {title: "Django ORM: запросы", url: "https://docs.djangoproject.com/en/stable/topics/db/queries/"}
+  - {title: "ORM Hate — Мартин Фаулер", url: "https://martinfowler.com/bliki/OrmHate.html"}
+db.general:
+  - {title: "PostgreSQL: введение", url: "https://postgrespro.ru/docs/postgresql/17/tutorial"}
+  - {title: "Основы технологий баз данных — Postgres Pro", url: "https://postgrespro.ru/education/books/dbtech"}
+
+web.http:
+  - {title: "Обзор протокола HTTP — MDN", url: "https://developer.mozilla.org/ru/docs/Web/HTTP/Guides/Overview"}
+  - {title: "Коды ответа HTTP — MDN", url: "https://developer.mozilla.org/ru/docs/Web/HTTP/Reference/Status"}
+  - {title: "HTTP-кеширование — MDN", url: "https://developer.mozilla.org/ru/docs/Web/HTTP/Guides/Caching"}
+web.rest:
+  - {title: "Проектирование веб-API — Microsoft Learn", url: "https://learn.microsoft.com/ru-ru/azure/architecture/best-practices/api-design"}
+  - {title: "REST — диссертация Роя Филдинга, гл. 5", url: "https://ics.uci.edu/~fielding/pubs/dissertation/rest_arch_style.htm"}
+web.rpc:
+  - {title: "Введение в gRPC", url: "https://grpc.io/docs/what-is-grpc/introduction/"}
+  - {title: "Изучение GraphQL", url: "https://graphql.org/learn/"}
+web.auth:
+  - {title: "OAuth 2.0", url: "https://oauth.net/2/"}
+  - {title: "Введение в JWT", url: "https://www.jwt.io/introduction"}
+  - {title: "Аутентификация — OWASP Cheat Sheet", url: "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html"}
+web.realtime:
+  - {title: "WebSockets — MDN", url: "https://developer.mozilla.org/ru/docs/Web/API/WebSockets_API"}
+  - {title: "Server-sent events — MDN", url: "https://developer.mozilla.org/ru/docs/Web/API/Server-sent_events"}
+  - {title: "Длинные опросы — learn.javascript.ru", url: "https://learn.javascript.ru/long-polling"}
+web.general:
+  - {title: "HTTP — MDN", url: "https://developer.mozilla.org/ru/docs/Web/HTTP"}
+  - {title: "Как работает веб — MDN", url: "https://developer.mozilla.org/ru/docs/Learn_web_development/Getting_started/Web_standards/How_the_web_works"}
+
+arch.principles:
+  - {title: "SOLID — Википедия", url: "https://ru.wikipedia.org/wiki/SOLID_(программирование)"}
+  - {title: "Зацепление (coupling) — Википедия", url: "https://ru.wikipedia.org/wiki/Зацепление_(программирование)"}
+  - {title: "Don’t repeat yourself — Википедия", url: "https://ru.wikipedia.org/wiki/Don’t_repeat_yourself"}
+arch.patterns:
+  - {title: "Паттерны проектирования — Refactoring.Guru", url: "https://refactoring.guru/ru/design-patterns"}
+  - {title: "Каталог паттернов — Refactoring.Guru", url: "https://refactoring.guru/ru/design-patterns/catalog"}
+arch.microservices:
+  - {title: "Microservices — Мартин Фаулер", url: "https://martinfowler.com/articles/microservices.html"}
+  - {title: "Monolith First — Мартин Фаулер", url: "https://martinfowler.com/bliki/MonolithFirst.html"}
+  - {title: "Паттерн микросервисной архитектуры", url: "https://microservices.io/patterns/microservices.html"}
+arch.messaging:
+  - {title: "Введение в Apache Kafka", url: "https://kafka.apache.org/intro"}
+  - {title: "Учебники RabbitMQ", url: "https://www.rabbitmq.com/tutorials"}
+arch.caching:
+  - {title: "Шаблон Cache-Aside — Microsoft Learn", url: "https://learn.microsoft.com/ru-ru/azure/architecture/patterns/cache-aside"}
+  - {title: "Лучшие практики кэширования — AWS", url: "https://aws.amazon.com/ru/caching/best-practices/"}
+  - {title: "Разработка с Redis", url: "https://redis.io/docs/latest/develop/"}
+arch.distributed:
+  - {title: "Теорема CAP — Википедия", url: "https://ru.wikipedia.org/wiki/Теорема_CAP"}
+  - {title: "Паттерны распределённых систем — Фаулер", url: "https://martinfowler.com/articles/patterns-of-distributed-systems/"}
+  - {title: "Идемпотентные API и повторы — AWS", url: "https://aws.amazon.com/ru/builders-library/making-retries-safe-with-idempotent-APIs/"}
+arch.system_design:
+  - {title: "System Design Primer", url: "https://github.com/donnemartin/system-design-primer"}
+  - {title: "Amazon Builders' Library", url: "https://aws.amazon.com/ru/builders-library/"}
+arch.general:
+  - {title: "Основы архитектуры приложений — Microsoft Learn", url: "https://learn.microsoft.com/ru-ru/azure/architecture/guide/"}
+  - {title: "Software Architecture Guide — Фаулер", url: "https://martinfowler.com/architecture/"}
+
+devops.linux:
+  - {title: "The Linux Command Line — У. Шоттс", url: "https://linuxcommand.org/tlcl.php"}
+  - {title: "Справочные страницы Linux (man)", url: "https://man7.org/linux/man-pages/"}
+devops.docker:
+  - {title: "Что такое Docker", url: "https://docs.docker.com/get-started/docker-overview/"}
+  - {title: "Docker: лучшие практики сборки", url: "https://docs.docker.com/build/building/best-practices/"}
+devops.kubernetes:
+  - {title: "Kubernetes: обзор (на русском)", url: "https://kubernetes.io/ru/docs/concepts/overview/"}
+  - {title: "Kubernetes: концепции", url: "https://kubernetes.io/docs/concepts/"}
+devops.cicd:
+  - {title: "GitHub Actions — документация", url: "https://docs.github.com/ru/actions"}
+  - {title: "GitLab CI/CD", url: "https://docs.gitlab.com/ci/"}
+  - {title: "Continuous Integration — Мартин Фаулер", url: "https://martinfowler.com/articles/continuousIntegration.html"}
+devops.observability:
+  - {title: "Основы наблюдаемости — OpenTelemetry", url: "https://opentelemetry.io/docs/concepts/observability-primer/"}
+  - {title: "Prometheus: обзор", url: "https://prometheus.io/docs/introduction/overview/"}
+  - {title: "Мониторинг распределённых систем — Google SRE", url: "https://sre.google/sre-book/monitoring-distributed-systems/"}
+devops.cloud:
+  - {title: "Что такое облачные вычисления — AWS", url: "https://aws.amazon.com/ru/what-is-cloud-computing/"}
+  - {title: "Cloud Adoption Framework — Microsoft Learn", url: "https://learn.microsoft.com/ru-ru/azure/cloud-adoption-framework/"}
+  - {title: "Обзор Google Cloud", url: "https://cloud.google.com/docs/overview"}
+devops.iac:
+  - {title: "Что такое Terraform", url: "https://developer.hashicorp.com/terraform/intro"}
+  - {title: "Ansible: начало работы", url: "https://docs.ansible.com/projects/ansible/latest/getting_started/index.html"}
+devops.proxy:
+  - {title: "nginx: руководство для начинающих", url: "https://nginx.org/ru/docs/beginners_guide.html"}
+  - {title: "nginx как балансировщик нагрузки", url: "https://nginx.org/en/docs/http/load_balancing.html"}
+devops.git:
+  - {title: "Pro Git (на русском)", url: "https://git-scm.com/book/ru/v2"}
+  - {title: "Git: перебазирование", url: "https://git-scm.com/book/ru/v2/Ветвление-в-Git-Перебазирование"}
+devops.general:
+  - {title: "Двенадцать факторов (на русском)", url: "https://12factor.net/ru/"}
+  - {title: "Site Reliability Engineering — Google", url: "https://sre.google/sre-book/table-of-contents/"}
+
+testing.fundamentals:
+  - {title: "Практическая пирамида тестов — Фаулер", url: "https://martinfowler.com/articles/practical-test-pyramid.html"}
+  - {title: "Test Pyramid — Мартин Фаулер", url: "https://martinfowler.com/bliki/TestPyramid.html"}
+testing.test_design:
+  - {title: "Классы эквивалентности — Википедия", url: "https://en.wikipedia.org/wiki/Equivalence_partitioning"}
+  - {title: "Граничные значения — Википедия", url: "https://en.wikipedia.org/wiki/Boundary-value_analysis"}
+testing.unit:
+  - {title: "Документация pytest", url: "https://docs.pytest.org/en/stable/"}
+  - {title: "Mocks Aren't Stubs — Мартин Фаулер", url: "https://martinfowler.com/articles/mocksArentStubs.html"}
+  - {title: "JUnit: руководство", url: "https://docs.junit.org/current/overview.html"}
+testing.integration:
+  - {title: "Integration Test — Мартин Фаулер", url: "https://martinfowler.com/bliki/IntegrationTest.html"}
+  - {title: "Testcontainers: начало работы", url: "https://testcontainers.com/getting-started/"}
+  - {title: "Playwright: установка", url: "https://playwright.dev/docs/intro"}
+testing.automation:
+  - {title: "Документация Selenium", url: "https://www.selenium.dev/documentation/"}
+  - {title: "Playwright: тестирование API", url: "https://playwright.dev/docs/api-testing"}
+testing.performance:
+  - {title: "Виды нагрузочных тестов — Grafana k6", url: "https://grafana.com/docs/k6/latest/testing-guides/test-types/"}
+  - {title: "Документация Locust", url: "https://docs.locust.io/en/stable/"}
+testing.general:
+  - {title: "Тестирование ПО — Википедия", url: "https://ru.wikipedia.org/wiki/Тестирование_программного_обеспечения"}
+  - {title: "Testing Guide — Мартин Фаулер", url: "https://martinfowler.com/testing/"}
+
+security.web:
+  - {title: "OWASP Top 10", url: "https://top10.owasp.org/"}
+  - {title: "Web Security Academy — PortSwigger", url: "https://portswigger.net/web-security"}
+  - {title: "OWASP Cheat Sheet Series", url: "https://cheatsheetseries.owasp.org/"}
+security.crypto:
+  - {title: "TLS — глоссарий MDN", url: "https://developer.mozilla.org/ru/docs/Glossary/TLS"}
+  - {title: "Хранение паролей — OWASP Cheat Sheet", url: "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html"}
+  - {title: "TLS — OWASP Cheat Sheet", url: "https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html"}
+security.secrets:
+  - {title: "Управление секретами — OWASP Cheat Sheet", url: "https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html"}
+  - {title: "Авторизация — OWASP Cheat Sheet", url: "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html"}
+  - {title: "Что такое Vault — HashiCorp", url: "https://developer.hashicorp.com/vault/docs/about-vault/what-is-vault"}
+security.general:
+  - {title: "OWASP ASVS", url: "https://asvs.owasp.org/"}
+  - {title: "OWASP Cheat Sheets по Top 10", url: "https://cheatsheetseries.owasp.org/IndexTopTen.html"}
+
+cs.algorithms:
+  - {title: "Викиконспекты ИТМО", url: "https://neerc.ifmo.ru/wiki/index.php?title=Заглавная_страница"}
+  - {title: "Algorithms for Competitive Programming", url: "https://cp-algorithms.com/"}
+cs.data_structures:
+  - {title: "Хеш-таблица — Википедия", url: "https://ru.wikipedia.org/wiki/Хеш-таблица"}
+  - {title: "Двоичная куча — Викиконспекты ИТМО", url: "https://neerc.ifmo.ru/wiki/index.php?title=Двоичная_куча"}
+  - {title: "VisuAlgo: структуры данных в анимации", url: "https://visualgo.net/en"}
+cs.os:
+  - {title: "Operating Systems: Three Easy Pieces", url: "https://pages.cs.wisc.edu/~remzi/OSTEP/"}
+  - {title: "Виртуальная память — Википедия", url: "https://ru.wikipedia.org/wiki/Виртуальная_память"}
+cs.networks:
+  - {title: "Как работает интернет — MDN", url: "https://developer.mozilla.org/ru/docs/Learn_web_development/Howto/Web_mechanics/How_does_the_Internet_work"}
+  - {title: "Что такое доменное имя — MDN", url: "https://developer.mozilla.org/ru/docs/Learn_web_development/Howto/Web_mechanics/What_is_a_domain_name"}
+  - {title: "Computer Networks: A Systems Approach", url: "https://book.systemsapproach.org/"}
+cs.general:
+  - {title: "Teach Yourself Computer Science", url: "https://teachyourselfcs.com/"}
+  - {title: "OSSU: программа Computer Science", url: "https://github.com/ossu/computer-science"}
+
+data.analysis:
+  - {title: "pandas: руководство пользователя", url: "https://pandas.pydata.org/docs/user_guide/index.html"}
+  - {title: "OpenIntro Statistics", url: "https://www.openintro.org/book/os/"}
+data.engineering:
+  - {title: "ETL — Википедия", url: "https://ru.wikipedia.org/wiki/ETL"}
+  - {title: "Что такое dbt", url: "https://docs.getdbt.com/docs/introduction"}
+  - {title: "Apache Airflow — документация", url: "https://airflow.apache.org/docs/apache-airflow/stable/index.html"}
+data.bigdata:
+  - {title: "Apache Spark — документация", url: "https://spark.apache.org/docs/latest/"}
+  - {title: "Apache Hadoop — документация", url: "https://hadoop.apache.org/docs/stable/"}
+data.bi:
+  - {title: "Обзор Power BI — Microsoft Learn", url: "https://learn.microsoft.com/ru-ru/power-bi/fundamentals/power-bi-overview"}
+  - {title: "Apache Superset: введение", url: "https://superset.apache.org/user-docs/intro"}
+data.ml:
+  - {title: "Учебник по машинному обучению — ШАД", url: "https://contest.yandex.ru/tracks/ml/"}
+  - {title: "scikit-learn: руководство", url: "https://scikit-learn.org/stable/user_guide.html"}
+  - {title: "Machine Learning Crash Course — Google", url: "https://developers.google.com/machine-learning/crash-course"}
+data.mlops:
+  - {title: "MLOps: принципы", url: "https://ml-ops.org/"}
+  - {title: "MLflow — документация", url: "https://mlflow.org/docs/latest/index.html"}
+data.general:
+  - {title: "Учебник по машинному обучению — ШАД", url: "https://contest.yandex.ru/tracks/ml/"}
+  - {title: "Machine Learning Crash Course — Google", url: "https://developers.google.com/machine-learning/crash-course"}

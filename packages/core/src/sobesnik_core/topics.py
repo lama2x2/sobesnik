@@ -97,3 +97,55 @@ def parse_catalog(data: dict[str, Any]) -> TopicCatalog:
 def load_topics() -> TopicCatalog:
     text = files("sobesnik_core").joinpath("topics.yaml").read_text(encoding="utf-8")
     return parse_catalog(yaml.safe_load(text))
+
+
+DOC_TITLE_MAX = 60
+DOCS_PER_TOPIC = (1, 3)
+
+
+@dataclass(frozen=True)
+class TopicDoc:
+    """Ссылка «что почитать» (007 §9): только адрес и короткое название, текст не храним."""
+
+    title: str
+    url: str
+    check: bool = True
+    """`false` — сайт режет ботов, сетевой тест ссылку пропускает."""
+
+
+def parse_topic_docs(
+    data: dict[str, Any], catalog: TopicCatalog
+) -> dict[str, tuple[TopicDoc, ...]]:
+    """Проверяет карту «тема → ссылки» против справочника. Ошибка — ValueError."""
+    docs: dict[str, tuple[TopicDoc, ...]] = {}
+    for slug, items in data.items():
+        if not catalog.is_leaf(slug):
+            raise ValueError(f"ссылки для неизвестной темы: {slug}")
+        low, high = DOCS_PER_TOPIC
+        if not low <= len(items) <= high:
+            raise ValueError(f"у темы {slug} должно быть {low}–{high} ссылки, а не {len(items)}")
+        parsed = tuple(
+            TopicDoc(title=str(i["title"]), url=str(i["url"]), check=bool(i.get("check", True)))
+            for i in items
+        )
+        for doc in parsed:
+            if not doc.url.startswith("https://"):
+                raise ValueError(f"ссылка темы {slug} не https: {doc.url}")
+            if not doc.title or len(doc.title) > DOC_TITLE_MAX:
+                raise ValueError(f"название ссылки темы {slug} пустое или длиннее {DOC_TITLE_MAX}")
+        if len({d.url for d in parsed}) != len(parsed):
+            raise ValueError(f"у темы {slug} повторяются ссылки")
+        docs[slug] = parsed
+    return docs
+
+
+@cache
+def load_topic_docs() -> dict[str, tuple[TopicDoc, ...]]:
+    text = files("sobesnik_core").joinpath("topic_docs.yaml").read_text(encoding="utf-8")
+    return parse_topic_docs(yaml.safe_load(text) or {}, load_topics())
+
+
+def topic_docs(slug: str | None) -> tuple[TopicDoc, ...]:
+    if slug is None:
+        return ()
+    return load_topic_docs().get(slug, ())
