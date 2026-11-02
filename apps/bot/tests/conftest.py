@@ -1,6 +1,7 @@
 """Тесты бота без Telegram и без API: Telegram — фейковая сессия `Bot`, которая записывает вызовы,
 API — `FakeApi` через протокол `Api`. Состояние — Redis из compose (отдельная база)."""
 
+import asyncio
 import os
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -13,6 +14,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.base import BaseSession
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.methods import EditMessageText, GetFile, SendMessage, TelegramMethod
 from aiogram.methods.base import TelegramType
 from aiogram.types import Chat, File, Message
@@ -60,6 +62,8 @@ class FakeSession(BaseSession):
         self.calls: list[TelegramMethod[Any]] = []
         self.files: dict[str, bytes] = {}
         self.sent: list[Message] = []
+        self.fail_next = 0
+        """Сколько следующих запросов упадёт с сетевой ошибкой: Telegram недоступен."""
         """Сообщения, которые вернул `sendMessage`: по ним видны `message_id`."""
         self._ids = count(500)
 
@@ -69,6 +73,9 @@ class FakeSession(BaseSession):
         method: TelegramMethod[TelegramType],
         timeout: int | None = None,  # noqa: ASYNC109 — сигнатура aiogram
     ) -> TelegramType:
+        if self.fail_next > 0:
+            self.fail_next -= 1
+            raise TelegramNetworkError(method=method, message="Cannot connect to host")
         self.calls.append(method)
         result: Any = True
         if isinstance(method, SendMessage):
@@ -145,6 +152,8 @@ class FakeApi:
         self.answers: dict[uuid.UUID, Answer] = {}
         self.voice_data: list[tuple[bytes, str, str]] = []
         self.closed = False
+        self.gate: asyncio.Event | None = None
+        """Если задан, разбор вакансии ждёт его — как долгий вызов модели."""
 
     def _call(self, name: str, **kwargs: Any) -> None:
         self.calls.append((name, kwargs))
@@ -167,6 +176,8 @@ class FakeApi:
         html: str | None = None,
     ) -> Vacancy:
         self._call("create_vacancy", user_id=user_id, text=text, url=url, html=html)
+        if self.gate is not None:
+            await self.gate.wait()
         return self.vacancy
 
     async def set_level(self, vacancy_id: uuid.UUID, level: Level) -> Vacancy:
@@ -357,7 +368,9 @@ def store(redis: Redis) -> StateStore:
 async def trainer(
     bot: Bot, api: FakeApi, store: StateStore, clock: Clock
 ) -> AsyncIterator[Trainer]:
-    trainer = Trainer(bot, api, store, questions=3, now=clock)
+    trainer = Trainer(
+        bot, api, store, questions=3, now=clock, glue_wait_s=0.01, send_retry_delays_s=(0, 0)
+    )
     yield trainer
     await trainer.close()
 
@@ -365,17 +378,20 @@ async def trainer(
 class Chat_:
     """Пользователь в Telegram: шлёт апдейты через диспетчер, как настоящий long polling."""
 
-    def __init__(self, dp: Dispatcher, bot: Bot, user_id: int = USER) -> None:
+    def __init__(
+        self, dp: Dispatcher, bot: Bot, user_id: int = USER, chat_type: str = "private"
+    ) -> None:
         self.dp = dp
         self.bot = bot
         self.user_id = user_id
+        self.chat_type = chat_type
         self._ids = count(1)
 
     def _message(self, **fields: Any) -> dict[str, Any]:
         return {
             "message_id": next(self._ids),
             "date": int(datetime.now(UTC).timestamp()),
-            "chat": {"id": self.user_id, "type": "private"},
+            "chat": {"id": self.user_id, "type": self.chat_type},
             "from": {"id": self.user_id, "is_bot": False, "first_name": "Кандидат"},
             **fields,
         }
@@ -384,16 +400,17 @@ class Chat_:
         update["update_id"] = next(self._ids)
         await self.dp.feed_raw_update(self.bot, update)
 
-    async def send(self, text: str) -> None:
-        entities = (
-            [{"type": "bot_command", "offset": 0, "length": len(text.split()[0])}]
-            if text.startswith("/")
-            else None
-        )
+    async def send(self, text: str, entities: list[dict[str, Any]] | None = None) -> None:
+        if text.startswith("/"):
+            entities = [{"type": "bot_command", "offset": 0, "length": len(text.split()[0])}]
         fields: dict[str, Any] = {"text": text}
         if entities:
             fields["entities"] = entities
         await self._feed({"message": self._message(**fields)})
+
+    async def photo(self, caption: str) -> None:
+        photo = [{"file_id": "p", "file_unique_id": "up", "width": 10, "height": 10}]
+        await self._feed({"message": self._message(photo=photo, caption=caption)})
 
     async def voice(self, file_id: str = "voice-1", size: int = 3000) -> None:
         voice = {
@@ -405,8 +422,12 @@ class Chat_:
         }
         await self._feed({"message": self._message(voice=voice)})
 
-    async def document(self, name: str, file_id: str = "doc-1", size: int = 100) -> None:
+    async def document(
+        self, name: str, file_id: str = "doc-1", size: int = 100, mime: str | None = None
+    ) -> None:
         doc = {"file_id": file_id, "file_unique_id": "ud", "file_name": name, "file_size": size}
+        if mime:
+            doc["mime_type"] = mime
         await self._feed({"message": self._message(document=doc)})
 
     async def press(self, data: str, message_id: int = 77) -> None:

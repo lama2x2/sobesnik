@@ -25,7 +25,7 @@ from sobesnik_api.db.base import Base
 from sobesnik_api.db.models import EvalRun
 from sobesnik_api.db.session import make_sessionmaker
 from sobesnik_api.settings import Settings
-from sobesnik_api.sources.fetch import PageFetcher
+from sobesnik_api.sources.fetch import PageFetcher, parse_networks
 from sobesnik_api.worker import WorkerDeps
 from sobesnik_asr import FakeTranscriber, MemoryStorage
 from sobesnik_core.rubric import load_rubric
@@ -204,10 +204,16 @@ class FakeWeb:
     async def resolve(self, host: str, port: int) -> list[str]:
         return self.dns.get(host, ["93.184.216.34"])
 
-    def fetcher(self, *, allow_private: bool = False, timeout_s: float = 5.0) -> PageFetcher:
+    def fetcher(
+        self, *, allow_private: bool = False, timeout_s: float = 5.0, allow_networks: str = ""
+    ) -> PageFetcher:
         client = httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
         return PageFetcher(
-            timeout_s=timeout_s, allow_private=allow_private, client=client, resolver=self.resolve
+            timeout_s=timeout_s,
+            allow_private=allow_private,
+            allow_networks=parse_networks(allow_networks),
+            client=client,
+            resolver=self.resolve,
         )
 
 

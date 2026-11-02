@@ -13,7 +13,7 @@ from sobesnik_api.llm import LLMRoles, make_roles
 from sobesnik_api.queue import ArqQueue, TaskQueue
 from sobesnik_api.routes import admin, answers, health, sessions, users, vacancies
 from sobesnik_api.settings import Settings
-from sobesnik_api.sources.fetch import PageFetcher
+from sobesnik_api.sources.fetch import PageFetcher, parse_networks
 from sobesnik_api.topics_sync import sync_topics
 from sobesnik_asr import AudioStorage, StorageError
 from sobesnik_core.topics import load_topics
@@ -47,7 +47,9 @@ def create_app(
         roles = LLMRoles(gen=llm, eval=llm_eval or llm) if llm else make_roles(settings)
         app.state.llm = roles
         app.state.fetcher = fetcher or PageFetcher(
-            timeout_s=settings.fetch_timeout_s, allow_private=settings.fetch_allow_private
+            timeout_s=settings.fetch_timeout_s,
+            allow_private=settings.fetch_allow_private,
+            allow_networks=parse_networks(settings.fetch_allow_networks),
         )
         app.state.queue = queue or ArqQueue(settings.redis_url)
         app.state.storage = storage or settings.audio_storage()

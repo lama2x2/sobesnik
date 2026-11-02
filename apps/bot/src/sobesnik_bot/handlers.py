@@ -1,9 +1,11 @@
 """Обработчики Telegram (006 §4): разбирают апдейт и передают его в `Trainer`."""
 
 from aiogram import F, Router
+from aiogram.enums import ChatType
 from aiogram.filters import Command, CommandObject
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, MessageEntity
 
+from sobesnik_bot import render
 from sobesnik_bot.flow import Trainer
 from sobesnik_bot.render import DetailsCb, ForgetCb, LevelCb, NewVacancyCb, SkipCb, TrainCb
 
@@ -20,8 +22,30 @@ def _cb_ids(query: CallbackQuery) -> tuple[int, int, int]:
     return query.message.chat.id, query.message.message_id, query.from_user.id
 
 
+def links(text: str, entities: list[MessageEntity] | None) -> list[str]:
+    """Ссылки, которые распознал Telegram: `hh.ru/vacancy/1` без схемы и слова-гиперссылки."""
+    found = []
+    for entity in entities or []:
+        if entity.type == "url":
+            found.append(entity.extract_from(text))
+        elif entity.type == "text_link" and entity.url:
+            found.append(entity.url)
+    return found
+
+
 def build_router(trainer: Trainer) -> Router:
+    root = Router(name="root")
+
+    @root.message(F.chat.type != ChatType.PRIVATE)
+    async def not_private(message: Message) -> None:
+        await message.answer(render.PRIVATE_ONLY)
+
+    @root.callback_query(F.message.chat.type != ChatType.PRIVATE)
+    async def not_private_button(query: CallbackQuery) -> None:
+        await query.answer(render.PRIVATE_ONLY, show_alert=True)
+
     router = Router(name="sobesnik")
+    root.include_router(router)
 
     @router.message(Command("start"))
     async def start(message: Message) -> None:
@@ -59,7 +83,8 @@ def build_router(trainer: Trainer) -> Router:
     @router.message(F.text)
     async def text(message: Message) -> None:
         assert message.text is not None
-        await trainer.text(*_ids(message), message.text)
+        found = links(message.text, message.entities)
+        await trainer.incoming_text(*_ids(message), message.text, found)
 
     @router.message(F.voice)
     async def voice(message: Message) -> None:
@@ -87,6 +112,25 @@ def build_router(trainer: Trainer) -> Router:
     async def html(message: Message) -> None:
         assert message.document is not None
         await trainer.html(*_ids(message), message.document.file_id, message.document.file_size)
+
+    @router.message(F.document.mime_type.startswith("audio/"))
+    async def audio_file(message: Message) -> None:
+        assert message.document is not None
+        doc = message.document
+        await trainer.voice(
+            *_ids(message),
+            file_id=doc.file_id,
+            size=doc.file_size,
+            filename=doc.file_name or "audio",
+            mime=doc.mime_type or "application/octet-stream",
+        )
+
+    @router.message(F.caption)
+    async def caption(message: Message) -> None:
+        """Вакансия пересылкой из канала: фото или файл с подписью."""
+        assert message.caption is not None
+        found = links(message.caption, message.caption_entities)
+        await trainer.incoming_text(*_ids(message), message.caption, found)
 
     @router.message()
     async def other(message: Message) -> None:
@@ -130,4 +174,4 @@ def build_router(trainer: Trainer) -> Router:
         await query.answer()
         await trainer.forget_confirmed(*_cb_ids(query), callback_data.confirm)
 
-    return router
+    return root

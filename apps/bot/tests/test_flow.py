@@ -1,6 +1,11 @@
 """Сценарии С1–С3 в боте (006 §4, §11): апдейты идут через диспетчер, API и Telegram — фейки."""
 
+import asyncio
+import contextlib
+from typing import Any
+
 from aiogram import Bot
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendChatAction, SendMessage
 
 from sobesnik_bot import render
@@ -25,10 +30,16 @@ async def in_training(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
 
 
 def test_vacancy_source() -> None:
-    assert vacancy_source(" https://hh.ru/vacancy/1 ") == {"url": "https://hh.ru/vacancy/1"}
-    assert vacancy_source("Ищем https://x.ru разработчика") == {
-        "text": "Ищем https://x.ru разработчика"
-    }
+    hh = "https://hh.ru/vacancy/1"
+    assert vacancy_source(f" {hh} ") == {"url": hh}
+    assert vacancy_source(f"Вот вакансия: {hh}, посмотри") == {"url": hh}
+    assert vacancy_source("hh.ru/vacancy/1", ["hh.ru/vacancy/1"]) == {"url": hh}
+    assert vacancy_source("вот эта", [hh]) == {"url": hh}  # слово-гиперссылка
+    assert vacancy_source("HTTP://X.RU/1") == {"url": "HTTP://X.RU/1"}
+    long = "Ищем Python-разработчика, требования: asyncio, PostgreSQL, Docker. " * 3
+    assert vacancy_source(f"{long} {hh}") == {"text": f"{long} {hh}".strip()}
+    two = f"{hh} https://hh.ru/vacancy/2"
+    assert vacancy_source(two) == {"text": two}
 
 
 async def test_start_creates_user(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
@@ -307,3 +318,138 @@ async def test_allowlist(trainer: Trainer, bot: Bot, api: FakeApi, tg: FakeSessi
 
     await Chat_(dp, bot).send("/start")
     assert api.names() == ["upsert_user"]
+
+
+# --- пограничные случаи ввода (006 §4.6)
+
+PART = "Требования: Python, asyncio, PostgreSQL. " * 100  # ~4 000 символов, как часть от Telegram
+
+
+async def test_split_vacancy_is_glued(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    await user.send(PART)
+    assert "create_vacancy" not in api.names()  # ждёт продолжения
+    await user.send("Ключевые навыки: Docker, Kafka")
+    texts = [kw["text"] for name, kw in api.calls if name == "create_vacancy"]
+    assert texts == [PART + "\nКлючевые навыки: Docker, Kafka"]
+
+
+async def test_split_vacancy_glued_by_timeout(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer
+) -> None:
+    await user.send(PART)
+    await user.send(PART)
+    assert "create_vacancy" not in api.names()
+    await trainer.wait_glued()
+    texts = [kw["text"] for name, kw in api.calls if name == "create_vacancy"]
+    assert texts == [(PART + "\n" + PART).strip()]
+
+
+async def test_split_answer_is_glued(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    await in_training(user, api, tg)
+    await user.send(PART)
+    await user.send("конец ответа")
+    answers = [kw["text"] for name, kw in api.calls if name == "answer_text"]
+    assert answers == [PART + "\nконец ответа"]
+
+
+async def test_busy_while_parsing(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    api.gate = asyncio.Event()
+    first = asyncio.create_task(user.send("Ищем Python-разработчика: asyncio, PostgreSQL"))
+    for _ in range(20):
+        await asyncio.sleep(0)
+    await user.send("Ещё одна вакансия: Go, Kubernetes")
+    await user.send("/train")
+    assert tg.texts().count(render.BUSY) == 2
+    api.gate.set()
+    await first
+    assert api.names().count("create_vacancy") == 1
+    assert "create_session" not in api.names()
+
+
+async def test_link_from_entities(user: Chat_, api: FakeApi) -> None:
+    text = "глянь hh.ru/vacancy/42"
+    await user.send(text, entities=[{"type": "url", "offset": 6, "length": 16}])
+    assert api.calls[-1][1]["url"] == "https://hh.ru/vacancy/42"
+    await user.send(
+        "вот эта вакансия",
+        entities=[{"type": "text_link", "offset": 4, "length": 3, "url": "https://hh.ru/v/7"}],
+    )
+    assert api.calls[-1][1]["url"] == "https://hh.ru/v/7"
+
+
+async def test_caption_is_vacancy(user: Chat_, api: FakeApi) -> None:
+    await user.photo("Ищем Python-разработчика в команду платформы: asyncio, PostgreSQL, Docker")
+    assert api.calls[-1][1]["text"].startswith("Ищем Python-разработчика")
+
+
+async def test_audio_document_is_voice(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    await in_training(user, api, tg)
+    tg.files["doc-1"] = b"ID3-mp3"
+    await user.document("answer.mp3", mime="audio/mpeg")
+    assert api.voice_data == [(b"ID3-mp3", "answer.mp3", "audio/mpeg")]
+
+
+async def test_too_long_messages(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    api.errors["create_vacancy"] = ApiError(422, "validation_error", "x")
+    await user.send("очень длинная вакансия")
+    assert tg.last_text() == render.VACANCY_TOO_LONG
+    await in_training(user, api, tg)
+    api.errors["answer_text"] = ApiError(422, "validation_error", "x")
+    await user.send("очень длинный ответ")
+    assert tg.last_text() == render.ANSWER_TOO_LONG
+
+
+async def test_group_chat_ignored(
+    trainer: Trainer, bot: Bot, api: FakeApi, tg: FakeSession
+) -> None:
+    group = Chat_(build_dispatcher(trainer, frozenset()), bot, user_id=-100, chat_type="group")
+    await group.send("/start")
+    await group.send("вакансия")
+    assert api.calls == []
+    assert tg.texts() == [render.PRIVATE_ONLY, render.PRIVATE_ONLY]
+
+
+# --- Telegram недоступен (живая проверка: VPN пропал на 5 минут)
+
+
+async def test_send_retries_network_errors(user: Chat_, tg: FakeSession) -> None:
+    tg.fail_next = 2
+    await user.send("/start")
+    assert tg.last_text() == render.INTRO
+
+
+async def test_telegram_down_after_generation_keeps_session(
+    user: Chat_, api: FakeApi, tg: FakeSession
+) -> None:
+    """Вопросы сгенерированы, а отправить их некуда: /train потом продолжает ту же сессию."""
+    await with_vacancy(user, api, tg)
+    sent = 0  # «готовлю» уходит, дальше Telegram пропадает надолго
+    original = tg.make_request
+
+    async def flaky(bot: Any, method: Any, timeout: int | None = None) -> Any:  # noqa: ASYNC109
+        nonlocal sent
+        sent += 1
+        if sent > 1:
+            raise TelegramNetworkError(method=method, message="timeout")
+        return await original(bot, method, timeout)
+
+    tg.make_request = flaky  # type: ignore[method-assign]
+    with contextlib.suppress(TelegramNetworkError):
+        await user.send("/train")
+    tg.make_request = original  # type: ignore[method-assign]
+
+    await user.send("/train")
+    assert api.names().count("create_session") == 1
+    assert tg.last_text().startswith("<b>Вопрос 1 из 3</b>")
+
+
+async def test_lost_result_message_does_not_block(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer
+) -> None:
+    await in_training(user, api, tg)
+    await user.send("ответ")
+    answer = api.last_answer()
+    api.evaluate(answer.id)
+    tg.fail_next = 3  # правка статуса не прошла ни с одной попытки
+    await trainer.on_event(answer.id, "done")
+    assert tg.last_text().startswith("<b>Вопрос 2 из 3</b>")

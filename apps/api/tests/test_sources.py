@@ -74,6 +74,20 @@ async def test_allow_private(web: Any, replies: Any) -> None:
     assert (await web.fetcher(allow_private=True).fetch(URL)).content == b"<p>ok</p>"
 
 
+async def test_fake_ip_vpn_networks(web: Any, replies: Any) -> None:
+    """VPN с fake-IP: имя резолвится в 240.0.0.0/4 (006 §4.6)."""
+    web.dns["jobs.example.com"] = ["240.0.0.82"]
+    web.pages[URL] = replies.html("<p>ok</p>")
+    with pytest.raises(UrlNotAllowedError, match="FETCH_ALLOW_NETWORKS"):
+        await web.fetcher().fetch(URL)
+    fetcher = web.fetcher(allow_networks="198.18.0.0/15, 240.0.0.0/4")
+    assert (await fetcher.fetch(URL)).content == b"<p>ok</p>"
+    # остальные внутренние адреса по-прежнему закрыты
+    web.dns["jobs.example.com"] = ["10.0.0.5"]
+    with pytest.raises(UrlNotAllowedError, match="внутренний адрес"):
+        await fetcher.fetch(URL)
+
+
 @pytest.mark.parametrize(
     "url", ["file:///etc/passwd", "javascript:alert(1)", "https:///nohost", "http://x:99999/"]
 )

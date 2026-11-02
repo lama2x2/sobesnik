@@ -8,7 +8,7 @@
 import asyncio
 import ipaddress
 import socket
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
 
@@ -21,6 +21,13 @@ USER_AGENT = "Mozilla/5.0 (compatible; Sobesnik/0.1; +https://github.com/lama2x2
 HTML_TYPES = ("text/html", "application/xhtml+xml")
 
 Resolver = Callable[[str, int], Awaitable[list[str]]]
+Network = ipaddress.IPv4Network | ipaddress.IPv6Network
+
+FAKE_IP_NETWORKS: tuple[Network, ...] = (
+    ipaddress.ip_network("198.18.0.0/15"),
+    ipaddress.ip_network("240.0.0.0/4"),
+)
+"""Куда VPN-клиенты в режиме fake-IP резолвят любые имена (006 §4.6); только для подсказки."""
 
 
 class SourceError(Exception):
@@ -49,11 +56,24 @@ async def system_resolver(host: str, port: int) -> list[str]:
     return [str(info[4][0]) for info in infos]
 
 
-def is_public_ip(address: str) -> bool:
+def _ip(address: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
     ip = ipaddress.ip_address(address.split("%", 1)[0])
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
+        return ip.ipv4_mapped
+    return ip
+
+
+def is_public_ip(address: str, allowed: Sequence[Network] = ()) -> bool:
+    """Публичный адрес или адрес из `allowed` (подсети fake-IP VPN, `FETCH_ALLOW_NETWORKS`)."""
+    ip = _ip(address)
+    if any(ip in network for network in allowed):
+        return True
     return ip.is_global and not ip.is_multicast
+
+
+def parse_networks(value: str) -> tuple[Network, ...]:
+    """`"198.18.0.0/15, 240.0.0.0/4"` → подсети; пустая строка — ни одной."""
+    return tuple(ipaddress.ip_network(part.strip()) for part in value.split(",") if part.strip())
 
 
 def validate_url(url: str) -> tuple[str, int]:
@@ -72,14 +92,21 @@ def validate_url(url: str) -> tuple[str, int]:
     return parts.hostname, port
 
 
-async def check_host(host: str, port: int, resolver: Resolver) -> None:
+async def check_host(
+    host: str, port: int, resolver: Resolver, allowed: Sequence[Network] = ()
+) -> None:
     try:
         addresses = await resolver(host, port)
     except OSError as exc:
         raise UrlUnreadableError(f"хост не резолвится: {exc}") from exc
     if not addresses:
         raise UrlUnreadableError("хост не резолвится")
-    if not all(is_public_ip(a) for a in addresses):
+    if not all(is_public_ip(a, allowed) for a in addresses):
+        if all(any(_ip(a) in n for n in FAKE_IP_NETWORKS) for a in addresses):
+            raise UrlNotAllowedError(
+                "адрес из диапазона fake-IP VPN: если ссылки идут через VPN, "
+                "задайте FETCH_ALLOW_NETWORKS=198.18.0.0/15,240.0.0.0/4"
+            )
         raise UrlNotAllowedError("ссылка ведёт на внутренний адрес")
 
 
@@ -89,11 +116,13 @@ class PageFetcher:
         *,
         timeout_s: float = 10.0,
         allow_private: bool = False,
+        allow_networks: Sequence[Network] = (),
         client: httpx.AsyncClient | None = None,
         resolver: Resolver = system_resolver,
     ) -> None:
         self._timeout_s = timeout_s
         self._allow_private = allow_private
+        self._allow_networks = tuple(allow_networks)
         self._client = client or httpx.AsyncClient()
         self._resolver = resolver
 
@@ -113,7 +142,7 @@ class PageFetcher:
         for _ in range(MAX_REDIRECTS + 1):
             host, port = validate_url(url)
             if not self._allow_private:
-                await check_host(host, port, self._resolver)
+                await check_host(host, port, self._resolver, self._allow_networks)
             request = self._client.build_request(
                 "GET",
                 url,

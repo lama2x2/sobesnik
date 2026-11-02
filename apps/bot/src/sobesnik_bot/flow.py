@@ -12,11 +12,18 @@ import re
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from dataclasses import dataclass, field
+from typing import TypeVar
 
 from aiogram import Bot
 from aiogram.enums import ChatAction
-from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramBadRequest,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+)
 from aiogram.types import InlineKeyboardMarkup, Message
 
 from sobesnik_bot import render
@@ -25,6 +32,8 @@ from sobesnik_bot.state import Pending, StateStore, UserState
 
 log = logging.getLogger(__name__)
 
+T = TypeVar("T")
+
 TELEGRAM_DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024
 """Больше Telegram боту файл не отдаёт."""
 HTML_MAX_BYTES = 3 * 1024 * 1024
@@ -32,13 +41,45 @@ TYPING_MAX_S = 15 * 60
 """Индикатор у ожидающего ответа гаснет не позже таймаута задачи воркера."""
 FINAL = ("done", "failed")
 
-_URL = re.compile(r"^https?://\S+$")
+SPLIT_FROM = 3_500
+"""Сообщение не короче — возможно, начало текста, который Telegram порезал по 4 096 (006 §4.6)."""
+GLUE_WAIT_S = 2.0
+SEND_RETRY_DELAYS_S = (1.0, 3.0, 10.0)
+"""Паузы между повторами отправки в Telegram при сбое сети: VPN моргает на секунды–минуты."""
+LINK_CONTEXT_MAX = 80
+"""Текста вокруг ссылки меньше минимума вакансии в API — значит, прислали ссылку, а не вакансию."""
+
+_URL = re.compile(r"https?://\S+", re.IGNORECASE)
+_SCHEME = re.compile(r"^https?://", re.IGNORECASE)
+_TRAILING = ".,;:!?)»\"'"
+"""Знаки после ссылки в тексте — не часть ссылки."""
 
 
-def vacancy_source(text: str) -> dict[str, str]:
-    """Одна ссылка — вакансия по ссылке (VAC-1), иначе текст."""
+def vacancy_source(text: str, links: Sequence[str] = ()) -> dict[str, str]:
+    """Ссылка — вакансия по ссылке (VAC-1), иначе текст.
+
+    `links` — ссылки из сущностей Telegram (там есть и `hh.ru/vacancy/1` без схемы,
+    и слово-гиперссылка); без них ищется `http(s)://` в тексте. Ссылка должна быть одна,
+    а текста вокруг — меньше `LINK_CONTEXT_MAX` символов.
+    """
     text = text.strip()
-    return {"url": text} if _URL.match(text) else {"text": text}
+    in_text = [u.rstrip(_TRAILING) for u in _URL.findall(text)]
+    found = list(dict.fromkeys(links)) or list(dict.fromkeys(in_text))
+    if len(found) != 1:
+        return {"text": text}
+    link = found[0]
+    if len(text.replace(link, "").strip()) >= LINK_CONTEXT_MAX:
+        return {"text": text}
+    return {"url": link if _SCHEME.match(link) else f"https://{link}"}
+
+
+@dataclass
+class _Glued:
+    """Части длинного текста, которые Telegram прислал отдельными сообщениями."""
+
+    chat_id: int
+    parts: list[str] = field(default_factory=list)
+    task: asyncio.Task[None] | None = None
 
 
 class Trainer:
@@ -52,6 +93,8 @@ class Trainer:
         now: Callable[[], float] = time.time,
         typing_interval_s: float = 4.0,
         slow_after_s: float = 60.0,
+        glue_wait_s: float = GLUE_WAIT_S,
+        send_retry_delays_s: Sequence[float] = SEND_RETRY_DELAYS_S,
     ) -> None:
         self.bot = bot
         self.api = api
@@ -60,35 +103,84 @@ class Trainer:
         self.now = now
         self.typing_interval_s = typing_interval_s
         self.slow_after_s = slow_after_s
+        self.glue_wait_s = glue_wait_s
+        self.send_retry_delays_s = tuple(send_retry_delays_s)
+        self._glued: dict[int, _Glued] = {}
+        self._busy: set[int] = set()
+        """Пользователи, у которых идёт разбор вакансии или генерация вопросов."""
         self._locks: defaultdict[uuid.UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._typing: dict[uuid.UUID, asyncio.Task[None]] = {}
 
     async def close(self) -> None:
-        for task in self._typing.values():
+        tasks = [*self._typing.values(), *(g.task for g in self._glued.values() if g.task)]
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*self._typing.values(), return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
         self._typing.clear()
+        self._glued.clear()
+
+    async def wait_glued(self) -> None:
+        """Дождаться склейки частей, которые ждут продолжения (для тестов)."""
+        tasks = [g.task for g in self._glued.values() if g.task]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    @contextlib.asynccontextmanager
+    async def _exclusive(self, chat_id: int, telegram_id: int) -> AsyncIterator[bool]:
+        """Одна долгая операция с моделью на пользователя: вторая получает «ещё работаю»."""
+        if telegram_id in self._busy:
+            await self._send(chat_id, render.BUSY)
+            yield False
+            return
+        self._busy.add(telegram_id)
+        try:
+            yield True
+        finally:
+            self._busy.discard(telegram_id)
 
     # --- Telegram ----------------------------------------------------------
+
+    async def _retry(self, call: Callable[[], Awaitable[T]]) -> T:
+        """Telegram недоступен (сеть, VPN) — повторить через `send_retry_delays_s`; флуд-лимит —
+        подождать, сколько просит Telegram. Последняя попытка — без перехвата."""
+        for delay in self.send_retry_delays_s:
+            try:
+                return await call()
+            except TelegramRetryAfter as exc:
+                await asyncio.sleep(exc.retry_after)
+            except TelegramNetworkError as exc:
+                log.warning("telegram unavailable, retry", extra={"error": str(exc)[:200]})
+                await asyncio.sleep(delay)
+        return await call()
 
     async def _send(
         self, chat_id: int, text: str, markup: InlineKeyboardMarkup | None = None
     ) -> Message:
-        return await self.bot.send_message(chat_id, text, reply_markup=markup)
+        return await self._retry(lambda: self.bot.send_message(chat_id, text, reply_markup=markup))
 
     async def _edit(
         self, chat_id: int, message_id: int, text: str, markup: InlineKeyboardMarkup | None = None
     ) -> None:
         """Редактирует сообщение; не вышло (удалено, слишком старое) — шлёт новое."""
         try:
-            await self.bot.edit_message_text(
-                text=text, chat_id=chat_id, message_id=message_id, reply_markup=markup
+            await self._retry(
+                lambda: self.bot.edit_message_text(
+                    text=text, chat_id=chat_id, message_id=message_id, reply_markup=markup
+                )
             )
         except TelegramBadRequest as exc:
             if "not modified" in str(exc):
                 return
             log.info("edit failed, sending new message", extra={"error": type(exc).__name__})
             await self._send(chat_id, text, markup)
+
+    async def _edit_or_log(
+        self, chat_id: int, message_id: int, text: str, markup: InlineKeyboardMarkup | None = None
+    ) -> None:
+        """Результат ответа: если Telegram так и не ответил, сценарий всё равно идёт дальше."""
+        try:
+            await self._edit(chat_id, message_id, text, markup)
+        except TelegramAPIError as exc:
+            log.warning("result message lost", extra={"error": type(exc).__name__})
 
     async def _typing_loop(self, chat_id: int, until: float) -> None:
         """`typing` гаснет через 5 с, поэтому повторяется каждые ~4 с (BOT-6)."""
@@ -154,17 +246,25 @@ class Trainer:
         url: str | None = None,
         html: str | None = None,
     ) -> None:
-        status = await self._send(chat_id, render.PARSING)
-        try:
-            state = await self.user(telegram_id)
-            assert state.user_id is not None
-            async with self.typing(chat_id):
-                vacancy = await self.api.create_vacancy(
-                    state.user_id, text=text, url=url, html=html
+        async with self._exclusive(chat_id, telegram_id) as ok:
+            if not ok:
+                return
+            status = await self._send(chat_id, render.PARSING)
+            try:
+                state = await self.user(telegram_id)
+                assert state.user_id is not None
+                async with self.typing(chat_id):
+                    vacancy = await self.api.create_vacancy(
+                        state.user_id, text=text, url=url, html=html
+                    )
+            except ApiError as exc:
+                message = (
+                    render.VACANCY_TOO_LONG
+                    if exc.code == "validation_error"
+                    else render.api_error_text(exc)
                 )
-        except ApiError as exc:
-            await self._edit(chat_id, status.message_id, render.api_error_text(exc))
-            return
+                await self._edit(chat_id, status.message_id, message)
+                return
         state = await self.store.get_user(telegram_id)  # пока шёл разбор, состояние могло смениться
         state.vacancy_id = vacancy.id
         state.session_id = state.question_id = None
@@ -195,7 +295,43 @@ class Trainer:
 
     # --- сообщения пользователя --------------------------------------------
 
-    async def text(self, chat_id: int, telegram_id: int, text: str) -> None:
+    async def incoming_text(
+        self, chat_id: int, telegram_id: int, text: str, links: Sequence[str] = ()
+    ) -> None:
+        """Текст из Telegram. Длинный текст Telegram режет на части по 4 096 символов: часть
+        от `SPLIT_FROM` ждёт продолжения до `glue_wait_s`, часть короче — последняя (006 §4.6).
+
+        До первого `await` всё синхронно: части одного текста встают в очередь по порядку.
+        """
+        glued = self._glued.get(telegram_id)
+        if glued is None and len(text) < SPLIT_FROM:
+            await self.text(chat_id, telegram_id, text, links)
+            return
+        if glued is None:
+            glued = self._glued[telegram_id] = _Glued(chat_id)
+        glued.parts.append(text)
+        if glued.task is not None:
+            glued.task.cancel()
+            glued.task = None
+        if len(text) < SPLIT_FROM:
+            del self._glued[telegram_id]
+            await self._flush_glued(glued, telegram_id)
+        else:
+            glued.task = asyncio.create_task(self._glue_later(telegram_id))
+
+    async def _glue_later(self, telegram_id: int) -> None:
+        await asyncio.sleep(self.glue_wait_s)
+        glued = self._glued.pop(telegram_id, None)
+        if glued is not None:
+            await self._flush_glued(glued, telegram_id)
+
+    async def _flush_glued(self, glued: _Glued, telegram_id: int) -> None:
+        log.info("text glued", extra={"telegram_id": telegram_id, "parts": len(glued.parts)})
+        await self.text(glued.chat_id, telegram_id, "\n".join(glued.parts))
+
+    async def text(
+        self, chat_id: int, telegram_id: int, text: str, links: Sequence[str] = ()
+    ) -> None:
         """Текст — ответ на вопрос, если бот его ждёт; иначе вакансия."""
         state = await self.store.get_user(telegram_id)
         if state.mode == "waiting":
@@ -203,7 +339,7 @@ class Trainer:
         elif state.mode == "answer" and state.session_id and state.question_id:
             await self._answer_text(chat_id, telegram_id, state, text)
         else:
-            await self.vacancy(chat_id, telegram_id, **vacancy_source(text))
+            await self.vacancy(chat_id, telegram_id, **vacancy_source(text, links))
 
     async def html(self, chat_id: int, telegram_id: int, file_id: str, size: int | None) -> None:
         """Сохранённая страница вакансии файлом (VAC-1)."""
@@ -225,7 +361,10 @@ class Trainer:
         try:
             accepted = await self.api.answer_text(state.session_id, state.question_id, text)
         except ApiError as exc:
-            await self._send(chat_id, render.api_error_text(exc))
+            too_long = exc.code == "validation_error"
+            await self._send(
+                chat_id, render.ANSWER_TOO_LONG if too_long else render.api_error_text(exc)
+            )
             return
         await self._accepted(chat_id, telegram_id, state, accepted, "text")
 
@@ -305,6 +444,19 @@ class Trainer:
         new: bool = False,
     ) -> None:
         """Тренировка: продолжить незавершённую сессию этой вакансии или создать новую."""
+        async with self._exclusive(chat_id, telegram_id) as ok:
+            if ok:
+                await self._train(chat_id, telegram_id, n, vacancy_id=vacancy_id, new=new)
+
+    async def _train(
+        self,
+        chat_id: int,
+        telegram_id: int,
+        n: int | None,
+        *,
+        vacancy_id: uuid.UUID | None,
+        new: bool,
+    ) -> None:
         try:
             state = await self.user(telegram_id)
         except ApiError as exc:
@@ -329,15 +481,16 @@ class Trainer:
         except ApiError as exc:
             await self._edit(chat_id, status.message_id, render.api_error_text(exc))
             return
-        await self._edit(
-            chat_id, status.message_id, f"🧩 Готово: вопросов {len(session.questions)}."
-        )
+        # сначала состояние: если Telegram сейчас недоступен, /train продолжит эту же сессию
         state = await self.store.get_user(telegram_id)
         state.vacancy_id, state.session_id, state.question_id = session.vacancy_id, session.id, None
         state.position, state.mode, state.noted_session = 0, "idle", None
         await self.store.save_user(telegram_id, state)
         log.info(
             "session created", extra={"telegram_id": telegram_id, "session_id": str(session.id)}
+        )
+        await self._edit(
+            chat_id, status.message_id, f"🧩 Готово: вопросов {len(session.questions)}."
         )
         await self._ask_next(chat_id, telegram_id, state, session)
 
@@ -461,7 +614,7 @@ class Trainer:
         )
         if answer.status == "done" and answer.evaluation is not None:
             note = state.noted_session != pending.session_id
-            await self._edit(
+            await self._edit_or_log(
                 pending.chat_id,
                 pending.message_id,
                 render.evaluation_text(answer, note=note),
@@ -481,7 +634,7 @@ class Trainer:
             await self.store.save_user(pending.telegram_id, state)
             text += "\n\n" + render.RETRY
             markup = render.skip_keyboard(pending.question_id)
-        await self._edit(pending.chat_id, pending.message_id, text, markup)
+        await self._edit_or_log(pending.chat_id, pending.message_id, text, markup)
 
     async def resume(self) -> None:
         """После старта: вернуть индикаторы и сверить всё, что ждали до перезапуска."""

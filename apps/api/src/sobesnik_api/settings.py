@@ -72,6 +72,8 @@ class Settings(BaseSettings):
 
     fetch_timeout_s: float = 10.0
     fetch_allow_private: bool = False
+    fetch_allow_networks: str = ""
+    """Подсети через запятую, которые считаются внешними: fake-IP VPN (006 §4.6)."""
 
     log_level: str = "INFO"
 
