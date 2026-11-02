@@ -10,7 +10,7 @@ import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from arq import Retry
@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sobesnik_api.db.models import Answer, EvalRun, Transcript
 from sobesnik_api.db.session import make_engine, make_sessionmaker
+from sobesnik_api.events import AnswerEvents, NullAnswerEvents, RedisAnswerEvents
 from sobesnik_api.logging_setup import configure_logging
 from sobesnik_api.queue import (
     EVALUATE_JOB,
@@ -69,15 +70,27 @@ class WorkerDeps:
     storage: AudioStorage
     queue: TaskQueue
     """Чтобы после распознавания поставить оценку."""
+    events: AnswerEvents = field(default_factory=NullAnswerEvents)
+    """События смены статуса ответа для бота (006 §6)."""
 
 
 def retry_delay(job_try: int) -> int:
     return RETRY_DELAYS_S[min(job_try, len(RETRY_DELAYS_S)) - 1]
 
 
-async def _fail(db: AsyncSession, answer: Answer, error: str) -> None:
-    answer.status, answer.error = "failed", error
+async def _set_status(
+    deps: WorkerDeps, db: AsyncSession, answer: Answer, status: str, error: str | None = None
+) -> None:
+    """Меняет статус, коммитит и после коммита публикует событие, если статус изменился."""
+    changed = (answer.status, answer.error) != (status, error)
+    answer.status, answer.error = status, error
     await db.commit()
+    if changed:
+        await deps.events.publish(answer)
+
+
+async def _fail(deps: WorkerDeps, db: AsyncSession, answer: Answer, error: str) -> None:
+    await _set_status(deps, db, answer, "failed", error)
     log.warning("answer failed", extra={"answer_id": str(answer.id), "error": error})
 
 
@@ -109,30 +122,28 @@ async def process_transcription(deps: WorkerDeps, answer_id: uuid.UUID, job_try:
         if answer.status not in ("received", "transcribing"):
             return
         if await latest_transcript(db, answer.id) is not None:  # повторная постановка
-            answer.status, answer.error = _after_transcription(answer), None
-            await db.commit()
+            await _set_status(deps, db, answer, _after_transcription(answer))
             if answer.status == "evaluating":
                 await _enqueue_evaluation(deps, answer.id)
             return
         audio = await answer_audio(db, answer.id)
         if audio is None or audio.deleted_at is not None:
-            await _fail(db, answer, "audio_missing")
+            await _fail(deps, db, answer, "audio_missing")
             return
-        answer.status, answer.error = "transcribing", None
-        await db.commit()
+        await _set_status(deps, db, answer, "transcribing")
 
         try:
             data = await deps.storage.get(audio.s3_key)
             result = await deps.transcriber.transcribe(data, language=settings.asr_language_code)
         except AudioNotFoundError:
-            await _fail(db, answer, "audio_missing")
+            await _fail(deps, db, answer, "audio_missing")
             return
         except AudioDecodeError:
-            await _fail(db, answer, "audio_unreadable")
+            await _fail(deps, db, answer, "audio_unreadable")
             return
         except (ASRError, StorageError) as exc:
             if job_try >= settings.asr_max_tries:
-                await _fail(db, answer, "asr_failed")
+                await _fail(deps, db, answer, "asr_failed")
                 return
             log.info(
                 "asr failed, retry",
@@ -170,10 +181,9 @@ async def process_transcription(deps: WorkerDeps, answer_id: uuid.UUID, job_try:
             },
         )
         if not text:  # тишина: бот попросит повторить или ответить текстом
-            await _fail(db, answer, "asr_empty")
+            await _fail(deps, db, answer, "asr_empty")
             return
-        answer.status = _after_transcription(answer)
-        await db.commit()
+        await _set_status(deps, db, answer, _after_transcription(answer))
     if answer.status == "evaluating":
         await _enqueue_evaluation(deps, answer_id)
 
@@ -193,10 +203,9 @@ async def process_answer(deps: WorkerDeps, answer_id: uuid.UUID, job_try: int = 
         if answer.kind == "voice":
             transcript = await latest_transcript(db, answer.id)
             if transcript is None:
-                await _fail(db, answer, "no_transcript")
+                await _fail(deps, db, answer, "no_transcript")
                 return
-        answer.status, answer.error = "evaluating", None
-        await db.commit()
+        await _set_status(deps, db, answer, "evaluating")
 
         config = EvalConfig.latest(
             max_retries=settings.llm_max_retries, num_ctx=settings.llm_num_ctx
@@ -207,8 +216,7 @@ async def process_answer(deps: WorkerDeps, answer_id: uuid.UUID, job_try: int = 
             )
         except LLMUnavailableError:
             if job_try >= settings.eval_max_tries:
-                answer.status, answer.error = "failed", "llm_unavailable"
-                await db.commit()
+                await _set_status(deps, db, answer, "failed", "llm_unavailable")
                 log.warning("answer failed", extra={"answer_id": str(answer_id), "tries": job_try})
                 return
             log.info(
@@ -216,9 +224,8 @@ async def process_answer(deps: WorkerDeps, answer_id: uuid.UUID, job_try: int = 
                 extra={"answer_id": str(answer_id), "job_try": job_try},
             )
             raise Retry(defer=retry_delay(job_try)) from None
-        answer.status = "done" if evaluation.status == "done" else "failed"
-        answer.error = evaluation.error
-        await db.commit()
+        status = "done" if evaluation.status == "done" else "failed"
+        await _set_status(deps, db, answer, status, evaluation.error)
 
 
 async def process_run(deps: WorkerDeps, run_id: uuid.UUID) -> None:
@@ -296,6 +303,7 @@ async def startup(ctx: dict[str, Any]) -> None:
         transcriber=make_transcriber(settings.asr_config()),
         storage=storage,
         queue=queue,
+        events=RedisAnswerEvents.from_url(settings.redis_url, settings.answer_events_stream),
     )
     try:
         await storage.ensure_bucket()
@@ -307,6 +315,7 @@ async def startup(ctx: dict[str, Any]) -> None:
 async def shutdown(ctx: dict[str, Any]) -> None:
     await ctx["deps"].llm.aclose()
     await ctx["deps"].transcriber.aclose()
+    await ctx["deps"].events.aclose()
     await ctx["engine"].dispose()
 
 

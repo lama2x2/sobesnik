@@ -18,6 +18,7 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "arq>=0.26",
     "python-multipart>=0.0.18",
+    "redis>=5.2",
 ]
 
 [project.scripts]
