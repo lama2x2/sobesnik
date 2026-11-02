@@ -201,7 +201,7 @@ async def test_video_note_answer(user: Chat_, api: FakeApi, tg: FakeSession) -> 
 async def test_question_count_buttons(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
     await with_vacancy(user, api, tg)
     keyboard = render.vacancy_keyboard(api.vacancy).inline_keyboard
-    assert [b.text for b in keyboard[-1]] == ["10 вопросов", "15 вопросов"]
+    assert [b.text for b in keyboard[-2]] == ["10 вопросов", "15 вопросов"]
     await user.press(TrainCb(vacancy_id=api.vacancy.id, n=10).pack())
     assert api.calls[-1] == ("create_session", {"vacancy_id": api.vacancy.id, "n": 10})
     assert tg.last_text().startswith("<b>Вопрос 1 из 10</b>")
@@ -312,15 +312,15 @@ async def test_details_button(user: Chat_, api: FakeApi, tg: FakeSession, traine
 
 async def test_forget(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
     await user.send("/forget")
-    assert tg.last_text() == render.FORGET_CONFIRM
-    await user.press(ForgetCb(confirm=False).pack())
+    assert tg.last_text() == render.FORGET_ASK
+    await user.press(ForgetCb(action="cancel").pack())
     assert tg.last_text() == render.FORGET_CANCELLED
     assert "forget_audio" not in api.names()
-    await user.press(ForgetCb(confirm=True).pack())
+    await user.press(ForgetCb(action="audio").pack())
     assert api.calls[-1] == ("forget_audio", {"user_id": api.user_id})
     assert tg.last_text() == "Удалено записей: 2, расшифровок: 2."
     api.errors["forget_audio"] = ApiError(503, "storage_unavailable", "s3")
-    await user.press(ForgetCb(confirm=True).pack())
+    await user.press(ForgetCb(action="audio").pack())
     assert tg.last_text() == render.API_ERRORS["storage_unavailable"]
 
 
@@ -329,7 +329,7 @@ async def test_allowlist(trainer: Trainer, bot: Bot, api: FakeApi, tg: FakeSessi
     stranger = Chat_(dp, bot, user_id=666)
     await stranger.send("/start")
     await stranger.send("вакансия")
-    await stranger.press(ForgetCb(confirm=True).pack())
+    await stranger.press(ForgetCb(action="all_confirm").pack())
     assert api.calls == []
     assert tg.texts() == [render.NOT_ALLOWED, render.NOT_ALLOWED]
     assert tg.of(AnswerCallbackQuery)[-1].text == render.NOT_ALLOWED

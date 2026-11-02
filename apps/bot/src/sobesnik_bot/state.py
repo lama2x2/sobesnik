@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Literal
 
 from redis.asyncio import Redis
@@ -29,6 +29,8 @@ class UserState:
     mode: Mode = "idle"
     noted_session: uuid.UUID | None = None
     """Сессия, в которой уже показана оговорка «балл примерный, ±20» (006 §8.2)."""
+    picked: list[str] = field(default_factory=list)
+    """Темы, отмеченные в выборе перед тренировкой (007 §8.3)."""
 
 
 @dataclass
@@ -82,6 +84,7 @@ class StateStore:
             position=int(data.get("position", 0)),
             mode=data.get("mode", "idle"),
             noted_session=_uuid(data.get("noted_session")),
+            picked=list(data.get("picked", [])),
         )
 
     async def save_user(self, telegram_id: int, state: UserState) -> None:

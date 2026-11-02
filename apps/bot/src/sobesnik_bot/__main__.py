@@ -25,7 +25,9 @@ log = logging.getLogger("sobesnik_bot")
 COMMANDS = [
     BotCommand(command="new", description="новая вакансия"),
     BotCommand(command="train", description="тренировка по вакансии"),
-    BotCommand(command="forget", description="удалить мои голосовые"),
+    BotCommand(command="progress", description="прогресс по темам"),
+    BotCommand(command="repeat", description="повторить слабые темы"),
+    BotCommand(command="forget", description="удалить мои данные"),
     BotCommand(command="help", description="справка"),
 ]
 
@@ -42,7 +44,11 @@ def build_dispatcher(trainer: Trainer, allowed: frozenset[int]) -> Dispatcher:
 async def run(settings: BotSettings) -> None:
     assert settings.telegram_bot_token is not None
     token = settings.telegram_bot_token.get_secret_value()
-    bot = Bot(token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(
+        token,
+        # превью ссылок «что почитать» раздувают сообщение (007 §8.4)
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
+    )
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     service_token = settings.api_service_token
     api = ApiClient(settings.api_url, service_token.get_secret_value() if service_token else None)

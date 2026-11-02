@@ -1,4 +1,4 @@
-"""Тексты и клавиатуры бота (006 §4, §8). Чистые функции: ответы API → HTML-сообщения Telegram.
+"""Тексты и клавиатуры бота (006 §4, §8, 007 §8). Чистые функции: ответы API → HTML Telegram.
 
 Здесь только отображение. Итог, «пройден», сомнения в распознавании считает API.
 """
@@ -9,7 +9,18 @@ from html import escape
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from sobesnik_bot.api import LEVELS, Answer, ApiError, Level, Session, Summary, Vacancy
+from sobesnik_bot.api import (
+    LEVELS,
+    Answer,
+    ApiError,
+    Doc,
+    Level,
+    Progress,
+    Session,
+    Summary,
+    TopicProgress,
+    Vacancy,
+)
 
 GOOD_FROM = 75
 """С этого итога пройденный ответ показывается как «Хорошо» (только отображение)."""
@@ -56,7 +67,26 @@ class NewVacancyCb(CallbackData, prefix="newvac"):
 
 
 class ForgetCb(CallbackData, prefix="forget"):
-    confirm: bool
+    action: str
+    """`audio`, `all` (спросить ещё раз), `all_confirm`, `cancel` (007 §8.5)."""
+
+
+class TopicsCb(CallbackData, prefix="topics"):
+    """Выбор тем перед тренировкой (007 §8.3). Номер темы — индекс в списке тем вакансии:
+    UUID и slug вместе не влезают в 64 байта `callback_data`."""
+
+    action: str
+    """`open`, `toggle`, `start`, `cancel`."""
+    vacancy_id: uuid.UUID | None = None
+    i: int = 0
+
+
+class ProgressCb(CallbackData, prefix="progress"):
+    pass
+
+
+class RepeatCb(CallbackData, prefix="repeat"):
+    pass
 
 
 INTRO = (
@@ -75,7 +105,9 @@ HELP = (
     INTRO + "\n\nКоманды:\n"
     "/new — новая вакансия\n"
     "/train — тренировка по текущей вакансии (/train 10 — из 10 вопросов, от 3 до 15)\n"
-    "/forget — удалить мои голосовые записи и расшифровки\n"
+    "/progress — темы: где слабо, где в порядке, что почитать\n"
+    "/repeat — новые вопросы по слабым темам\n"
+    "/forget — удалить голосовые или все мои данные\n"
     "/help — эта справка"
 )
 
@@ -94,16 +126,31 @@ VACANCY_TOO_LONG = (
 )
 ANSWER_TOO_LONG = "Ответ длиннее 5 000 символов — сократите и пришлите ещё раз."
 PRIVATE_ONLY = "Я работаю только в личных сообщениях."
-FORGET_CONFIRM = (
-    "Удалить все ваши голосовые записи и их расшифровки? Оценки останутся.\n"
+FORGET_ASK = (
+    "Что удалить?\n"
+    "• <b>Только голос</b> — записи и расшифровки, оценки останутся.\n"
+    "• <b>Всё</b> — вакансии, ответы, оценки и прогресс.\n"
     "Отменить удаление будет нельзя."
 )
+FORGET_ALL_CONFIRM = "Удалить вакансии, ответы, оценки и прогресс? Отменить нельзя."
 FORGET_CANCELLED = "Ничего не удалено."
+NOTHING_TO_REPEAT = "Слабых тем нет 🎉 Пройдите тренировку по вакансии — /train."
+PREPARING_REPEAT = "🧩 Готовлю вопросы по слабым темам… обычно около 40 секунд."
+PICK_NONE = "Выберите хотя бы одну тему."
+PICK_CANCELLED = "Выбор тем отменён."
+NO_TOPICS = "У требований вакансии нет тем — тренируйтесь по всей вакансии."
 SKIPPED = "Вопрос пропущен."
 
 
 def preparing(n: int) -> str:
     return f"🧩 Готовлю вопросы ({n})… обычно около 40 секунд."
+
+
+def forgotten_all(vacancies: int, answers: int, audio: int) -> str:
+    return (
+        f"Удалено: вакансий {vacancies}, ответов {answers}, голосовых {audio}.\n"
+        "Начнём заново — пришлите вакансию."
+    )
 
 
 def forgotten(audio: int, transcripts: int) -> str:
@@ -148,7 +195,61 @@ def vacancy_keyboard(vacancy: Vacancy) -> InlineKeyboardMarkup:
         )
         for n in MORE_QUESTIONS
     ]
-    return InlineKeyboardMarkup(inline_keyboard=[levels[:3], levels[3:], [start], more])
+    pick = InlineKeyboardButton(
+        text="🎯 Выбрать темы",
+        callback_data=TopicsCb(action="open", vacancy_id=vacancy.id).pack(),
+    )
+    return InlineKeyboardMarkup(inline_keyboard=[levels[:3], levels[3:], [start], more, [pick]])
+
+
+# --- выбор тем ----------------------------------------------------------------
+
+TOPIC_BUTTON_MAX = 40
+
+
+def vacancy_topics(vacancy: Vacancy) -> list[tuple[str, str]]:
+    """Темы требований вакансии по порядку, без повторов: (slug, заголовок)."""
+    seen: dict[str, str] = {}
+    for r in vacancy.requirements:
+        if r.topic and r.topic not in seen:
+            seen[r.topic] = r.topic_title or r.topic
+    return list(seen.items())
+
+
+def _cut(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def pick_text(n: int) -> str:
+    return (
+        "<b>🎯 Выберите темы для тренировки</b>\n"
+        f"Вопросов будет {n}: по требованиям вакансии с этими темами.\n"
+        "<i>🔴 — слабая тема по прошлым ответам.</i>"
+    )
+
+
+def pick_keyboard(
+    topics: list[tuple[str, str]], picked: list[str], weak: set[str], n: int
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"{'✅' if slug in picked else '⬜'} {'🔴 ' if slug in weak else ''}"
+                + _cut(title, TOPIC_BUTTON_MAX),
+                callback_data=TopicsCb(action="toggle", i=i).pack(),
+            )
+        ]
+        for i, (slug, title) in enumerate(topics)
+    ]
+    chosen = sum(slug in picked for slug, _ in topics)
+    start = f"▶️ Начать ({n} вопросов)" if chosen else "▶️ Начать — выберите тему"
+    rows.append(
+        [
+            InlineKeyboardButton(text=start, callback_data=TopicsCb(action="start").pack()),
+            InlineKeyboardButton(text="Отмена", callback_data=TopicsCb(action="cancel").pack()),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # --- вопрос ------------------------------------------------------------------
@@ -158,6 +259,8 @@ def question_text(session: Session, position: int) -> str:
     question = next(q for q in session.questions if q.position == position)
     topic = f" · тема: {escape(question.topic)}" if question.topic else ""
     head = f"<b>Вопрос {position} из {len(session.questions)}</b>{topic}"
+    if session.mode == "repeat":
+        head = "🔁 Повторение · " + head
     return f"{head}\n\n{escape(question.text)}\n\n<i>Ответьте текстом или голосовым.</i>"
 
 
@@ -238,12 +341,24 @@ def evaluation_text(answer: Answer, *, note: bool) -> str:
         lines += ["", "<b>Что упущено:</b>"] + [f"• {escape(p)}" for p in ev.missed_points]
     if ev.advice:
         lines += ["", f"<b>Совет:</b> {escape(ev.advice)}"]
+    if not ev.passed and answer.docs:
+        lines += ["", "📚 Почитать: " + docs_line(answer.docs)]
     if answer.transcript is not None:
         lines += ["", transcript_block(answer.transcript.text)]
         doubts = doubts_block(ev.asr_doubts)
         if doubts:
             lines.append(doubts)
     return "\n".join(lines)
+
+
+DOCS_SHOWN = 2
+"""Ссылки — одной строкой, не больше двух (007 §8.4)."""
+
+
+def docs_line(docs: list[Doc]) -> str:
+    return " · ".join(
+        f'<a href="{escape(d.url, quote=True)}">{escape(d.title)}</a>' for d in docs[:DOCS_SHOWN]
+    )
 
 
 def details_keyboard(answer_id: uuid.UUID) -> InlineKeyboardMarkup:
@@ -340,7 +455,10 @@ def summary_text(session: Session, summary: Summary) -> str:
 
 
 def summary_keyboard(vacancy_id: uuid.UUID | None) -> InlineKeyboardMarkup:
-    row = [InlineKeyboardButton(text="Новая вакансия", callback_data=NewVacancyCb().pack())]
+    row = [
+        InlineKeyboardButton(text="Новая вакансия", callback_data=NewVacancyCb().pack()),
+        InlineKeyboardButton(text="📊 Прогресс", callback_data=ProgressCb().pack()),
+    ]
     if vacancy_id is not None:
         row.insert(
             0,
@@ -353,11 +471,104 @@ def summary_keyboard(vacancy_id: uuid.UUID | None) -> InlineKeyboardMarkup:
 
 
 def forget_keyboard() -> InlineKeyboardMarkup:
+    def button(text: str, action: str) -> InlineKeyboardButton:
+        return InlineKeyboardButton(text=text, callback_data=ForgetCb(action=action).pack())
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [button("🎙 Только голос", "audio"), button("🗑 Всё", "all")],
+            [button("Отмена", "cancel")],
+        ]
+    )
+
+
+def forget_all_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Удалить", callback_data=ForgetCb(confirm=True).pack()),
-                InlineKeyboardButton(text="Отмена", callback_data=ForgetCb(confirm=False).pack()),
+                InlineKeyboardButton(
+                    text="Да, удалить всё", callback_data=ForgetCb(action="all_confirm").pack()
+                ),
+                InlineKeyboardButton(text="Отмена", callback_data=ForgetCb(action="cancel").pack()),
             ]
         ]
     )
+
+
+# --- прогресс (007 §8.1) -----------------------------------------------------------
+
+GROUP_SHOWN = 10
+PROGRESS_NOTE = (
+    "<i>Баллы примерные: одна оценка ошибается на ±20, "
+    "поэтому смотрим среднее последних трёх попыток.</i>"
+)
+PROGRESS_EMPTY = "Пока нечего показать: ответьте на пару вопросов — и здесь появятся темы."
+
+
+def attempts_word(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return f"{n} попытка"
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return f"{n} попытки"
+    return f"{n} попыток"
+
+
+def short_title(title: str) -> str:
+    """Заголовок темы до двоеточия: «SQL: JOIN, агрегация…» → «SQL»."""
+    return title.split(":", 1)[0].strip()
+
+
+def _score(topic: TopicProgress) -> str:
+    return f"≈ {approx(round(topic.avg_last3))}" if topic.avg_last3 is not None else "—"
+
+
+def _more(items: list[TopicProgress]) -> str:
+    rest = len(items) - GROUP_SHOWN
+    return f"и ещё {rest}" if rest > 0 else ""
+
+
+def progress_text(progress: Progress) -> str:
+    if not progress.topics:
+        return PROGRESS_EMPTY
+    weak = [t for t in progress.topics if t.status == "weak"]
+    few = [t for t in progress.topics if t.status == "few"]
+    ok = [t for t in progress.topics if t.status == "ok"]
+    lines = ["📊 <b>Прогресс</b>"]
+    if weak:
+        lines += ["", "🔴 <b>Слабые темы</b>"]
+        for t in weak[:GROUP_SHOWN]:
+            lines.append(f"• {escape(t.title)} — {_score(t)} · {attempts_word(t.attempts)}")
+            if t.docs:
+                lines.append("   📚 " + docs_line(t.docs))
+        if _more(weak):
+            lines.append(_more(weak))
+    if few:
+        lines += ["", "⚪ <b>Мало данных</b>"]
+        for t in few[:GROUP_SHOWN]:
+            hint = ", похоже стоит повторить" if t.low else ""
+            lines.append(f"• {escape(t.title)} — {_score(t)} · {attempts_word(t.attempts)}{hint}")
+        if _more(few):
+            lines.append(_more(few))
+    if ok:
+        shown = " · ".join(
+            f"{escape(short_title(t.title))} {_score(t)} ({t.attempts})" for t in ok[:GROUP_SHOWN]
+        )
+        more = f" · {_more(ok)}" if _more(ok) else ""
+        lines += ["", f"🟢 <b>В порядке:</b> {shown}{more}"]
+    if progress.sessions:
+        lines += ["", "<b>Последние тренировки</b>"]
+        for h in progress.sessions:
+            name = "Повторение" if h.mode == "repeat" else escape(h.vacancy_title or "Вакансия")
+            avg = f" · ≈ {approx(round(h.avg_total))}" if h.avg_total is not None else ""
+            lines.append(
+                f"{h.created_at:%d.%m} · {name} · {h.passed} из {len(h.scores)} пройдено{avg}"
+            )
+    lines += ["", PROGRESS_NOTE]
+    return "\n".join(lines)
+
+
+def progress_keyboard(progress: Progress) -> InlineKeyboardMarkup | None:
+    if not any(t.status == "weak" or t.low for t in progress.topics):
+        return None
+    button = InlineKeyboardButton(text="🔁 Повторить слабые темы", callback_data=RepeatCb().pack())
+    return InlineKeyboardMarkup(inline_keyboard=[[button]])

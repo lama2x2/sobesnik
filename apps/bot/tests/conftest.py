@@ -26,9 +26,11 @@ from sobesnik_bot.api import (
     Answer,
     ApiError,
     CriterionScore,
+    Doc,
     Evaluation,
     Forgotten,
     Level,
+    Progress,
     Requirement,
     Session,
     SessionAnswer,
@@ -148,6 +150,7 @@ class FakeApi:
                 Requirement(id=uuid.uuid4(), text="Docker", is_required=False, topic=None),
             ],
         )
+        self.progress = Progress(topics=[], sessions=[])
         self.session: Session | None = None
         self.answers: dict[uuid.UUID, Answer] = {}
         self.voice_data: list[tuple[bytes, str, str]] = []
@@ -185,16 +188,37 @@ class FakeApi:
         self.vacancy = self.vacancy.model_copy(update={"level": level})
         return self.vacancy
 
-    async def create_session(self, vacancy_id: uuid.UUID, n: int) -> Session:
-        self._call("create_session", vacancy_id=vacancy_id, n=n)
+    async def get_vacancy(self, vacancy_id: uuid.UUID) -> Vacancy:
+        self._call("get_vacancy", vacancy_id=vacancy_id)
+        return self.vacancy
+
+    async def create_session(
+        self, vacancy_id: uuid.UUID, n: int, topics: list[str] | None = None
+    ) -> Session:
+        if topics is None:
+            self._call("create_session", vacancy_id=vacancy_id, n=n)
+        else:
+            self._call("create_session", vacancy_id=vacancy_id, n=n, topics=topics)
+        return self._new_session(vacancy_id, n, "vacancy")
+
+    def _new_session(self, vacancy_id: uuid.UUID | None, n: int, mode: str) -> Session:
         self.session = Session(
             id=uuid.uuid4(),
             vacancy_id=vacancy_id,
+            mode=mode,
             status="active",
             questions=[_question(i + 1) for i in range(n)],
         )
         self.answers.clear()
         return self.session
+
+    async def create_repeat(self, user_id: uuid.UUID, n: int) -> Session:
+        self._call("create_repeat", user_id=user_id, n=n)
+        return self._new_session(None, 2, "repeat")
+
+    async def get_progress(self, user_id: uuid.UUID) -> Progress:
+        self._call("get_progress", user_id=user_id)
+        return self.progress
 
     def _latest(self, question_id: uuid.UUID) -> Answer | None:
         found = [a for a in self.answers.values() if a.question_id == question_id]
@@ -283,6 +307,16 @@ class FakeApi:
         self._call("forget_audio", user_id=user_id)
         return Forgotten(audio_deleted=2, transcripts_deleted=2)
 
+    async def forget_all(self, user_id: uuid.UUID) -> Forgotten:
+        self._call("forget_all", user_id=user_id)
+        return Forgotten(
+            audio_deleted=2,
+            transcripts_deleted=2,
+            answers_deleted=7,
+            sessions_deleted=2,
+            vacancies_deleted=1,
+        )
+
     async def aclose(self) -> None:
         self.closed = True
 
@@ -302,6 +336,7 @@ class FakeApi:
         total: int = 67,
         passed: bool = True,
         doubts: list[str] | None = None,
+        docs: list[Doc] | None = None,
     ) -> None:
         evaluation = Evaluation(
             total=total,
@@ -315,7 +350,7 @@ class FakeApi:
             asr_doubts=doubts or [],
         )
         self.answers[answer_id] = self.answers[answer_id].model_copy(
-            update={"status": "done", "evaluation": evaluation}
+            update={"status": "done", "evaluation": evaluation, "docs": docs or []}
         )
 
     def last_answer(self) -> Answer:

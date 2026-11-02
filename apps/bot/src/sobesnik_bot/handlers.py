@@ -1,4 +1,4 @@
-"""Обработчики Telegram (006 §4): разбирают апдейт и передают его в `Trainer`."""
+"""Обработчики Telegram (006 §4, 007 §8): разбирают апдейт и передают его в `Trainer`."""
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -7,7 +7,17 @@ from aiogram.types import CallbackQuery, Message, MessageEntity
 
 from sobesnik_bot import render
 from sobesnik_bot.flow import Trainer
-from sobesnik_bot.render import DetailsCb, ForgetCb, LevelCb, NewVacancyCb, SkipCb, TrainCb
+from sobesnik_bot.render import (
+    DetailsCb,
+    ForgetCb,
+    LevelCb,
+    NewVacancyCb,
+    ProgressCb,
+    RepeatCb,
+    SkipCb,
+    TopicsCb,
+    TrainCb,
+)
 
 QUESTIONS_MIN, QUESTIONS_MAX = 3, 15
 
@@ -59,18 +69,34 @@ def build_router(trainer: Trainer) -> Router:
     async def new(message: Message) -> None:
         await trainer.new_vacancy(*_ids(message))
 
+    async def count_arg(message: Message, command: CommandObject) -> int | None:
+        """Число вопросов из `/train N` и `/repeat N`: 0 — не задано, неверное — сообщение
+        и `None`."""
+        if not command.args:
+            return 0
+        arg = command.args.strip()
+        if not arg.isdigit() or not QUESTIONS_MIN <= int(arg) <= QUESTIONS_MAX:
+            await message.answer(
+                f"Число вопросов — от {QUESTIONS_MIN} до {QUESTIONS_MAX}: /{command.command} 5"
+            )
+            return None
+        return int(arg)
+
     @router.message(Command("train"))
     async def train(message: Message, command: CommandObject) -> None:
-        n = None
-        if command.args:
-            arg = command.args.strip()
-            if not arg.isdigit() or not QUESTIONS_MIN <= int(arg) <= QUESTIONS_MAX:
-                await message.answer(
-                    f"Число вопросов — от {QUESTIONS_MIN} до {QUESTIONS_MAX}: /train 5"
-                )
-                return
-            n = int(arg)
-        await trainer.train(*_ids(message), n)
+        n = await count_arg(message, command)
+        if n is not None:
+            await trainer.train(*_ids(message), n or None)
+
+    @router.message(Command("repeat"))
+    async def repeat(message: Message, command: CommandObject) -> None:
+        n = await count_arg(message, command)
+        if n is not None:
+            await trainer.repeat(*_ids(message), n or None)
+
+    @router.message(Command("progress"))
+    async def progress(message: Message) -> None:
+        await trainer.progress(*_ids(message))
 
     @router.message(Command("forget"))
     async def forget(message: Message) -> None:
@@ -186,8 +212,39 @@ def build_router(trainer: Trainer) -> Router:
         await trainer.new_vacancy(chat_id, telegram_id)
 
     @router.callback_query(ForgetCb.filter())
-    async def forget_confirmed(query: CallbackQuery, callback_data: ForgetCb) -> None:
+    async def forget_action(query: CallbackQuery, callback_data: ForgetCb) -> None:
         await query.answer()
-        await trainer.forget_confirmed(*_cb_ids(query), callback_data.confirm)
+        await trainer.forget_action(*_cb_ids(query), callback_data.action)
+
+    @router.callback_query(ProgressCb.filter())
+    async def progress_button(query: CallbackQuery) -> None:
+        await query.answer()
+        chat_id, _, telegram_id = _cb_ids(query)
+        await trainer.progress(chat_id, telegram_id)
+
+    @router.callback_query(RepeatCb.filter())
+    async def repeat_button(query: CallbackQuery) -> None:
+        await query.answer()
+        chat_id, _, telegram_id = _cb_ids(query)
+        await trainer.repeat(chat_id, telegram_id)
+
+    @router.callback_query(TopicsCb.filter())
+    async def topics(query: CallbackQuery, callback_data: TopicsCb) -> None:
+        chat_id, message_id, telegram_id = _cb_ids(query)
+        error: str | None = None
+        if callback_data.action == "open" and callback_data.vacancy_id is not None:
+            error = await trainer.pick_open(chat_id, telegram_id, callback_data.vacancy_id)
+        elif callback_data.action == "toggle":
+            error = await trainer.pick_toggle(chat_id, message_id, telegram_id, callback_data.i)
+        elif callback_data.action == "start":
+            # ответить на нажатие сразу: генерация идёт до минуты
+            if await trainer.has_picked(telegram_id):
+                await query.answer()
+                await trainer.pick_start(chat_id, message_id, telegram_id)
+                return
+            error = render.PICK_NONE
+        else:
+            await trainer.pick_cancel(chat_id, message_id, telegram_id)
+        await query.answer(error or None, show_alert=error is not None)
 
     return root

@@ -2,6 +2,7 @@
 только нужные боту поля."""
 
 import uuid
+from datetime import datetime
 from typing import Any, Literal, Protocol, TypeVar
 
 import httpx
@@ -27,6 +28,7 @@ class Requirement(_Model):
     text: str
     is_required: bool
     topic: str | None
+    topic_title: str | None = None
 
 
 class Vacancy(_Model):
@@ -56,6 +58,7 @@ class SessionQuestion(_Model):
 class Session(_Model):
     id: uuid.UUID
     vacancy_id: uuid.UUID | None
+    mode: str = "vacancy"
     status: str
     questions: list[SessionQuestion]
 
@@ -94,6 +97,13 @@ class Answer(_Model):
     error: str | None
     transcript: Transcript | None = None
     evaluation: Evaluation | None = None
+    topic: str | None = None
+    docs: list["Doc"] = []
+
+
+class Doc(_Model):
+    title: str
+    url: str
 
 
 class SummaryQuestion(_Model):
@@ -114,6 +124,35 @@ class Summary(_Model):
 class Forgotten(_Model):
     audio_deleted: int
     transcripts_deleted: int
+    answers_deleted: int = 0
+    sessions_deleted: int = 0
+    vacancies_deleted: int = 0
+
+
+class TopicProgress(_Model):
+    slug: str
+    title: str
+    status: Literal["weak", "few", "ok"]
+    low: bool
+    attempts: int
+    last_score: int | None
+    avg_last3: float | None
+    docs: list[Doc]
+
+
+class SessionHistory(_Model):
+    created_at: datetime
+    mode: str
+    vacancy_title: str | None
+    answered: int
+    passed: int
+    avg_total: float | None
+    scores: list[int | None]
+
+
+class Progress(_Model):
+    topics: list[TopicProgress]
+    sessions: list[SessionHistory]
 
 
 class ApiError(Exception):
@@ -147,7 +186,15 @@ class Api(Protocol):
 
     async def set_level(self, vacancy_id: uuid.UUID, level: Level) -> Vacancy: ...
 
-    async def create_session(self, vacancy_id: uuid.UUID, n: int) -> Session: ...
+    async def get_vacancy(self, vacancy_id: uuid.UUID) -> Vacancy: ...
+
+    async def create_session(
+        self, vacancy_id: uuid.UUID, n: int, topics: list[str] | None = None
+    ) -> Session: ...
+
+    async def create_repeat(self, user_id: uuid.UUID, n: int) -> Session: ...
+
+    async def get_progress(self, user_id: uuid.UUID) -> Progress: ...
 
     async def get_session(self, session_id: uuid.UUID) -> Session: ...
 
@@ -169,6 +216,8 @@ class Api(Protocol):
     async def get_answer(self, answer_id: uuid.UUID) -> Answer: ...
 
     async def forget_audio(self, user_id: uuid.UUID) -> Forgotten: ...
+
+    async def forget_all(self, user_id: uuid.UUID) -> Forgotten: ...
 
     async def aclose(self) -> None: ...
 
@@ -229,9 +278,23 @@ class ApiClient:
     async def set_level(self, vacancy_id: uuid.UUID, level: Level) -> Vacancy:
         return await self._call(Vacancy, "PATCH", f"/vacancies/{vacancy_id}", json={"level": level})
 
-    async def create_session(self, vacancy_id: uuid.UUID, n: int) -> Session:
-        body = {"vacancy_id": str(vacancy_id), "n": n}
+    async def get_vacancy(self, vacancy_id: uuid.UUID) -> Vacancy:
+        return await self._call(Vacancy, "GET", f"/vacancies/{vacancy_id}")
+
+    async def create_session(
+        self, vacancy_id: uuid.UUID, n: int, topics: list[str] | None = None
+    ) -> Session:
+        body: dict[str, Any] = {"vacancy_id": str(vacancy_id), "n": n}
+        if topics is not None:
+            body["topics"] = topics
         return await self._call(Session, "POST", "/sessions", json=body)
+
+    async def create_repeat(self, user_id: uuid.UUID, n: int) -> Session:
+        body = {"mode": "repeat", "user_id": str(user_id), "n": n}
+        return await self._call(Session, "POST", "/sessions", json=body)
+
+    async def get_progress(self, user_id: uuid.UUID) -> Progress:
+        return await self._call(Progress, "GET", f"/users/{user_id}/progress")
 
     async def get_session(self, session_id: uuid.UUID) -> Session:
         return await self._call(Session, "GET", f"/sessions/{session_id}")
@@ -262,6 +325,10 @@ class ApiClient:
     async def forget_audio(self, user_id: uuid.UUID) -> Forgotten:
         path = f"/users/{user_id}/data"
         return await self._call(Forgotten, "DELETE", path, params={"scope": "audio"})
+
+    async def forget_all(self, user_id: uuid.UUID) -> Forgotten:
+        path = f"/users/{user_id}/data"
+        return await self._call(Forgotten, "DELETE", path, params={"scope": "all"})
 
     async def aclose(self) -> None:
         await self._client.aclose()

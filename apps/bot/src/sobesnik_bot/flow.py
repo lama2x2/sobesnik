@@ -1,4 +1,5 @@
-"""Сценарий тренировки в боте (006 §4): вакансия → сессия → вопрос → ответ → оценка → сводка.
+"""Сценарий тренировки в боте (006 §4, 007 §8): вакансия → сессия → вопрос → ответ → оценка →
+сводка; прогресс, повторение слабых тем, выбор тем и удаление данных.
 
 `Trainer` — общий для обработчиков Telegram и чтения событий: обработчики сообщают ему, что
 прислал пользователь, события — что ответ сменил статус. Решения о вакансиях, вопросах и оценках
@@ -27,7 +28,7 @@ from aiogram.exceptions import (
 from aiogram.types import InlineKeyboardMarkup, Message
 
 from sobesnik_bot import render
-from sobesnik_bot.api import Accepted, Answer, Api, ApiError, Level, Session
+from sobesnik_bot.api import Accepted, Answer, Api, ApiError, Level, Session, Vacancy
 from sobesnik_bot.state import Pending, StateStore, UserState
 
 log = logging.getLogger(__name__)
@@ -442,11 +443,15 @@ class Trainer:
         *,
         vacancy_id: uuid.UUID | None = None,
         new: bool = False,
+        topics: list[str] | None = None,
     ) -> None:
-        """Тренировка: продолжить незавершённую сессию этой вакансии или создать новую."""
+        """Тренировка: продолжить незавершённую сессию этой вакансии или создать новую.
+        С `topics` — всегда новая, только по этим темам (007 §6.1)."""
         async with self._exclusive(chat_id, telegram_id) as ok:
             if ok:
-                await self._train(chat_id, telegram_id, n, vacancy_id=vacancy_id, new=new)
+                await self._train(
+                    chat_id, telegram_id, n, vacancy_id=vacancy_id, new=new, topics=topics
+                )
 
     async def _train(
         self,
@@ -456,43 +461,89 @@ class Trainer:
         *,
         vacancy_id: uuid.UUID | None,
         new: bool,
+        topics: list[str] | None = None,
     ) -> None:
-        try:
-            state = await self.user(telegram_id)
-        except ApiError as exc:
-            await self._send(chat_id, render.api_error_text(exc))
-            return
-        if state.mode == "waiting":
-            await self._send(chat_id, render.WAIT_EVALUATION)
+        state = await self._ready(chat_id, telegram_id)
+        if state is None:
             return
         if vacancy_id is not None and vacancy_id != state.vacancy_id:
             state.vacancy_id, state.session_id, new = vacancy_id, None, True
         if state.vacancy_id is None:
             await self._send(chat_id, render.NO_VACANCY)
             return
-        resumable = not new and n is None and state.session_id is not None
+        resumable = not new and n is None and topics is None and state.session_id is not None
         if resumable and await self._resume(chat_id, telegram_id, state):
             return
         n = n or self.questions
-        status = await self._send(chat_id, render.preparing(n))
+        vacancy = state.vacancy_id
+        await self._open_session(
+            chat_id,
+            telegram_id,
+            render.preparing(n),
+            lambda: self.api.create_session(vacancy, n, topics),
+        )
+
+    async def _ready(self, chat_id: int, telegram_id: int) -> UserState | None:
+        """Пользователь в API и не ждёт оценку; иначе сообщение и `None`."""
+        try:
+            state = await self.user(telegram_id)
+        except ApiError as exc:
+            await self._send(chat_id, render.api_error_text(exc))
+            return None
+        if state.mode == "waiting":
+            await self._send(chat_id, render.WAIT_EVALUATION)
+            return None
+        return state
+
+    async def _open_session(
+        self,
+        chat_id: int,
+        telegram_id: int,
+        preparing: str,
+        create: Callable[[], Awaitable[Session]],
+        errors: dict[str, str] | None = None,
+    ) -> None:
+        status = await self._send(chat_id, preparing)
         try:
             async with self.typing(chat_id):
-                session = await self.api.create_session(state.vacancy_id, n)
+                session = await create()
         except ApiError as exc:
-            await self._edit(chat_id, status.message_id, render.api_error_text(exc))
+            text = (errors or {}).get(exc.code) or render.api_error_text(exc)
+            await self._edit(chat_id, status.message_id, text)
             return
         # сначала состояние: если Telegram сейчас недоступен, /train продолжит эту же сессию
         state = await self.store.get_user(telegram_id)
-        state.vacancy_id, state.session_id, state.question_id = session.vacancy_id, session.id, None
+        if session.vacancy_id is not None:  # у повторения вакансии нет — текущая остаётся
+            state.vacancy_id = session.vacancy_id
+        state.session_id, state.question_id = session.id, None
         state.position, state.mode, state.noted_session = 0, "idle", None
         await self.store.save_user(telegram_id, state)
         log.info(
-            "session created", extra={"telegram_id": telegram_id, "session_id": str(session.id)}
+            "session created",
+            extra={"telegram_id": telegram_id, "session_id": str(session.id), "mode": session.mode},
         )
         await self._edit(
             chat_id, status.message_id, f"🧩 Готово: вопросов {len(session.questions)}."
         )
         await self._ask_next(chat_id, telegram_id, state, session)
+
+    async def repeat(self, chat_id: int, telegram_id: int, n: int | None = None) -> None:
+        """Повторение слабых тем (С5, 007 §8.2)."""
+        async with self._exclusive(chat_id, telegram_id) as ok:
+            if not ok:
+                return
+            state = await self._ready(chat_id, telegram_id)
+            if state is None:
+                return
+            user_id = state.user_id
+            assert user_id is not None
+            await self._open_session(
+                chat_id,
+                telegram_id,
+                render.PREPARING_REPEAT,
+                lambda: self.api.create_repeat(user_id, n or self.questions),
+                {"nothing_to_repeat": render.NOTHING_TO_REPEAT},
+            )
 
     async def _resume(self, chat_id: int, telegram_id: int, state: UserState) -> bool:
         assert state.session_id is not None
@@ -501,7 +552,7 @@ class Trainer:
         except ApiError:
             return False
         if session.status == "finished" or session.vacancy_id != state.vacancy_id:
-            return False
+            return False  # и повторение: /train — это тренировка по вакансии
         if state.mode == "answer":  # задать текущий вопрос ещё раз
             state.position -= 1
         await self._ask_next(chat_id, telegram_id, state, session)
@@ -667,25 +718,136 @@ class Trainer:
         await self._send(chat_id, render.details_text(answer))
 
     async def forget(self, chat_id: int, telegram_id: int) -> None:
-        await self._send(chat_id, render.FORGET_CONFIRM, render.forget_keyboard())
+        await self._send(chat_id, render.FORGET_ASK, render.forget_keyboard())
 
-    async def forget_confirmed(
-        self, chat_id: int, message_id: int, telegram_id: int, confirm: bool
+    async def forget_action(
+        self, chat_id: int, message_id: int, telegram_id: int, action: str
     ) -> None:
-        """`/forget` для голоса (006 §15 п. 4): аудио из хранилища и расшифровки из БД."""
-        if not confirm:
+        """`/forget` (С6, 007 §8.5): только голос — сразу, всё — после второго подтверждения."""
+        if action == "all":
+            await self._edit(
+                chat_id, message_id, render.FORGET_ALL_CONFIRM, render.forget_all_keyboard()
+            )
+            return
+        if action not in ("audio", "all_confirm"):
             await self._edit(chat_id, message_id, render.FORGET_CANCELLED)
             return
         try:
             state = await self.user(telegram_id)
             assert state.user_id is not None
-            result = await self.api.forget_audio(state.user_id)
+            if action == "audio":
+                result = await self.api.forget_audio(state.user_id)
+            else:
+                result = await self.api.forget_all(state.user_id)
         except ApiError as exc:
             await self._edit(chat_id, message_id, render.api_error_text(exc))
             return
-        log.info(
-            "audio forgotten", extra={"telegram_id": telegram_id, "audio": result.audio_deleted}
+        if action == "audio":
+            log.info(
+                "audio forgotten",
+                extra={"telegram_id": telegram_id, "audio": result.audio_deleted},
+            )
+            text = render.forgotten(result.audio_deleted, result.transcripts_deleted)
+        else:
+            for pending in await self.store.all_pending():
+                if pending.telegram_id == telegram_id:
+                    self._stop_typing(pending.answer_id)
+                    await self.store.remove_pending(pending.answer_id)
+            await self.store.save_user(telegram_id, UserState(user_id=state.user_id))
+            log.info("user data forgotten", extra={"telegram_id": telegram_id})
+            text = render.forgotten_all(
+                result.vacancies_deleted, result.answers_deleted, result.audio_deleted
+            )
+        await self._edit(chat_id, message_id, text)
+
+    # --- прогресс и выбор тем (007 §8) ------------------------------------------
+
+    async def progress(self, chat_id: int, telegram_id: int) -> None:
+        try:
+            state = await self.user(telegram_id)
+            assert state.user_id is not None
+            progress = await self.api.get_progress(state.user_id)
+        except ApiError as exc:
+            await self._send(chat_id, render.api_error_text(exc))
+            return
+        await self._send(
+            chat_id, render.progress_text(progress), render.progress_keyboard(progress)
         )
-        await self._edit(
-            chat_id, message_id, render.forgotten(result.audio_deleted, result.transcripts_deleted)
-        )
+
+    async def _weak_topics(self, state: UserState) -> set[str]:
+        assert state.user_id is not None
+        try:
+            progress = await self.api.get_progress(state.user_id)
+        except ApiError:
+            return set()
+        return {t.slug for t in progress.topics if t.status == "weak"}
+
+    async def _show_pick(
+        self, chat_id: int, message_id: int | None, state: UserState, vacancy: Vacancy
+    ) -> None:
+        topics = render.vacancy_topics(vacancy)
+        weak = await self._weak_topics(state)
+        markup = render.pick_keyboard(topics, state.picked, weak, self.questions)
+        text = render.pick_text(self.questions)
+        if message_id is None:
+            await self._send(chat_id, text, markup)
+        else:
+            await self._edit(chat_id, message_id, text, markup)
+
+    async def pick_open(self, chat_id: int, telegram_id: int, vacancy_id: uuid.UUID) -> str | None:
+        """Список тем вакансии отдельным сообщением. Возвращает текст всплывашки или `None`."""
+        try:
+            state = await self.user(telegram_id)
+            vacancy = await self.api.get_vacancy(vacancy_id)
+        except ApiError as exc:
+            return render.api_error_text(exc)
+        if not render.vacancy_topics(vacancy):
+            return render.NO_TOPICS
+        if vacancy_id != state.vacancy_id:
+            state.vacancy_id, state.session_id, state.question_id = vacancy_id, None, None
+            state.position, state.mode = 0, "idle"
+        state.picked = []
+        await self.store.save_user(telegram_id, state)
+        await self._show_pick(chat_id, None, state, vacancy)
+        return None
+
+    async def pick_toggle(
+        self, chat_id: int, message_id: int, telegram_id: int, index: int
+    ) -> str | None:
+        state = await self.store.get_user(telegram_id)
+        if state.vacancy_id is None:
+            return render.NO_VACANCY
+        try:
+            vacancy = await self.api.get_vacancy(state.vacancy_id)
+        except ApiError as exc:
+            return render.api_error_text(exc)
+        topics = render.vacancy_topics(vacancy)
+        if not 0 <= index < len(topics):
+            return "Список тем устарел — откройте его заново."
+        slug = topics[index][0]
+        if slug in state.picked:
+            state.picked = [t for t in state.picked if t != slug]
+        else:
+            state.picked = [*state.picked, slug]
+        await self.store.save_user(telegram_id, state)
+        await self._show_pick(chat_id, message_id, state, vacancy)
+        return None
+
+    async def has_picked(self, telegram_id: int) -> bool:
+        return bool((await self.store.get_user(telegram_id)).picked)
+
+    async def pick_start(self, chat_id: int, message_id: int, telegram_id: int) -> str | None:
+        state = await self.store.get_user(telegram_id)
+        if not state.picked:
+            return render.PICK_NONE
+        picked, state.picked = state.picked, []
+        await self.store.save_user(telegram_id, state)
+        await self._edit(chat_id, message_id, f"🎯 Темы выбраны: {len(picked)}.")
+        await self.train(chat_id, telegram_id, new=True, topics=picked)
+        return None
+
+    async def pick_cancel(self, chat_id: int, message_id: int, telegram_id: int) -> None:
+        state = await self.store.get_user(telegram_id)
+        state.picked = []
+        await self.store.save_user(telegram_id, state)
+        await self._edit(chat_id, message_id, render.PICK_CANCELLED)
