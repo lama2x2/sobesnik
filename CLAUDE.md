@@ -69,12 +69,13 @@ docker compose run --rm tools uv run ruff check .  # линтер
 docker compose run --rm tools uv run ruff format . # форматирование
 docker compose run --rm tools uv run mypy .        # типы
 docker compose run --rm tools uv run pytest -m ollama  # живой тест на Ollama хоста
-docker compose run --rm tools uv run pytest -m network # живая загрузка вакансии с hh.ru
+docker compose run --rm tools uv run pytest -m network # живая загрузка вакансии с hh.ru и проверка ссылок «что почитать»
 docker compose run --rm api uv run alembic upgrade head
 docker compose logs -f worker                      # воркер оценки (arq)
 docker compose logs -f bot                         # Telegram-бот (нужен TELEGRAM_BOT_TOKEN в .env)
 docker compose run --rm tools uv run sobesnik-cli eval-run create --name NAME --model MODEL --wait
 docker compose run --rm tools uv run sobesnik-cli export --live -o research/data/eval.csv
+docker compose run --rm tools uv run sobesnik-cli progress rebuild  # пересчитать прогресс по темам из оценок
 docker compose run --rm tools uv run python research/eval_check/check.py  # быстрая живая проверка оценки
 docker compose run --rm tools uv run pytest -m asr     # живое распознавание записи из research/data/asr_check
 docker compose run --rm tools uv run python research/asr_check/check.py --asr-only  # замер whisper
