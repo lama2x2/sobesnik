@@ -4,13 +4,14 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 
+from sobesnik_api.auth import require_service_token
 from sobesnik_api.db.session import make_engine, make_sessionmaker
 from sobesnik_api.errors import install_error_handlers
 from sobesnik_api.llm import LLMRoles, make_roles
 from sobesnik_api.queue import ArqQueue, TaskQueue
-from sobesnik_api.routes import answers, health, sessions, users, vacancies
+from sobesnik_api.routes import admin, answers, health, sessions, users, vacancies
 from sobesnik_api.settings import Settings
 from sobesnik_api.sources.fetch import PageFetcher
 from sobesnik_api.topics_sync import sync_topics
@@ -55,16 +56,22 @@ def create_app(
         except StorageError as exc:  # приём голоса ответит 503, остальное работает
             log.warning("audio bucket not ready", extra={"error": type(exc).__name__})
         app.state.settings = settings
+        if settings.api_service_token is None:
+            log.warning("service token not set: API is open to anyone who can reach it")
         yield
         await app.state.queue.aclose()
         await app.state.fetcher.aclose()
         await roles.aclose()
         await engine.dispose()
 
-    app = FastAPI(title="Sobesnik API", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="Sobesnik API", version="0.6.0", lifespan=lifespan)
     install_error_handlers(app)
     api = APIRouter(prefix="/api/v1")
-    for module in (health, users, vacancies, sessions, answers):
-        api.include_router(module.router)
+    api.include_router(health.router)
+    api.include_router(admin.router)  # свой админ-токен вместо сервисного
+    client = APIRouter(dependencies=[Depends(require_service_token)])
+    for module in (users, vacancies, sessions, answers):
+        client.include_router(module.router)
+    api.include_router(client)
     app.include_router(api)
     return app

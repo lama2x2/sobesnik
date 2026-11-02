@@ -1,8 +1,8 @@
 """Схемы запросов и ответов API (001 §8, 002 §11, 003 §10)."""
 
 import uuid
-from datetime import datetime
-from typing import Annotated, Self
+from datetime import date, datetime
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -210,3 +210,61 @@ class SessionSummaryOut(BaseModel):
     evaluated: int
     passed: int
     avg_total: float | None
+
+
+class DatasetOut(BaseModel):
+    """Импортированный датасет (006 §5.2) — как `sobesnik-cli dataset list`."""
+
+    name: str
+    lang: str
+    license: str
+    source_url: str | None
+    answers: int
+    voice: int
+    transcribed: int
+    imported_at: datetime
+
+
+class DatasetImportOut(BaseModel):
+    dataset: str
+    questions: int
+    answers: int
+
+
+class EvalRunCreate(BaseModel):
+    """Прогон (006 §5.2) — те же параметры, что у `sobesnik-cli eval-run create`."""
+
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    model: str | None = None
+    """По умолчанию — модель роли eval."""
+    dataset: str | None = None
+    session_id: uuid.UUID | None = None
+    user_id: uuid.UUID | None = None
+    since: date | None = None
+    until: date | None = None
+    rubric: int | None = None
+    prompt: int | None = None
+    temperature: float | None = None
+    seed: int | None = None
+    transcript: Literal["asr", "reference"] | None = None
+
+
+class EvalRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    provider: str
+    model: str
+    rubric_version: str
+    prompt_version: str
+    transcript_kind: str | None
+    filter: dict[str, Any]
+    params: dict[str, Any] | None
+    status: str
+    total: int
+    done: int
+    failed: int
+    error: str | None
+    created_at: datetime
+    finished_at: datetime | None

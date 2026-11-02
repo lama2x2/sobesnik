@@ -12,6 +12,7 @@
 
 import argparse
 import asyncio
+import os
 import time
 import uuid
 from pathlib import Path
@@ -24,6 +25,13 @@ from sobesnik_api.export import ExportFilter, select_rows, write_csv
 from sobesnik_api.queue import ArqQueue
 from sobesnik_api.services.eval_runs import RunFilter, create_run, get_run
 from sobesnik_api.settings import Settings
+
+
+def auth_headers() -> dict[str, str]:
+    """Сервисный токен API (006 §5.1), если он задан в env."""
+    token = os.environ.get("API_SERVICE_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
 
 ROOT = Path(__file__).resolve().parents[2]
 VACANCIES = ROOT / "research" / "data" / "vacancies"
@@ -120,7 +128,7 @@ async def main() -> None:
     settings = Settings()
     failures: list[str] = []
 
-    async with httpx.AsyncClient(base_url=args.api, timeout=300) as api:
+    async with httpx.AsyncClient(base_url=args.api, timeout=300, headers=auth_headers()) as api:
         health = (await api.get("/health/llm")).json()
         eval_model = health["roles"]["eval"]["model"]
         print("eval:", health["roles"]["eval"])

@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     asr_model_dir: str | None = "/models"
     asr_max_tries: int = 4
 
+    # Доступ к API (006 §5): пусто — проверки нет / служебные эндпоинты выключены
+    api_service_token: SecretStr | None = None
+    admin_token: SecretStr | None = None
+
+    # События смены статуса ответа для бота (006 §6)
+    answer_events_stream: str = "sobesnik:answer-events"
+
     fetch_timeout_s: float = 10.0
     fetch_allow_private: bool = False
 
@@ -79,11 +86,13 @@ class Settings(BaseSettings):
         "llm_eval_base_url",
         "llm_eval_api_key",
         "llm_eval_model",
+        "api_service_token",
+        "admin_token",
         mode="before",
     )
     @classmethod
     def empty_is_none(cls, value: object) -> object:
-        """`LLM_GEN_MODEL=` в .env означает «не задано», а не пустую строку."""
+        """`LLM_GEN_MODEL=` или `ADMIN_TOKEN=` в .env означает «не задано», а не пустую строку."""
         return None if value == "" else value
 
     @property

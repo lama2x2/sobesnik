@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from sobesnik_api.db.models import Answer, Audio, DatasetItem, EvalRun, Evaluation, Transcript
 from sobesnik_api.errors import ConflictError, NotFoundError
+from sobesnik_api.queue import TaskQueue
 from sobesnik_api.services.answers import IN_PROGRESS
 from sobesnik_api.services.evaluation import EVAL_PROMPT, EvalConfig, evaluate_and_store
 from sobesnik_api.services.voice import latest_transcript
@@ -146,6 +147,18 @@ async def get_run(db: AsyncSession, run_id: uuid.UUID) -> EvalRun:
     run = await db.get(EvalRun, run_id)
     if run is None:
         raise NotFoundError("eval_run_not_found", "прогон не найден")
+    return run
+
+
+async def restart_run(db: AsyncSession, queue: TaskQueue, run_id: uuid.UUID) -> EvalRun:
+    """Ставит прогон в очередь заново: готовые оценки он пропустит. Идущий прогон — `409`."""
+    run = await get_run(db, run_id)
+    run_config(run, max_retries=0, num_ctx=None)  # рубрика и промпт не изменились
+    if run.status == "running":
+        raise ConflictError("run_running", "прогон уже идёт")
+    run.status, run.error = "queued", None
+    await db.commit()
+    await queue.enqueue_run(run.id)
     return run
 
 

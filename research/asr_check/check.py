@@ -18,6 +18,7 @@
 
 import argparse
 import asyncio
+import os
 import time
 import uuid
 from pathlib import Path
@@ -32,6 +33,13 @@ from sobesnik_api.services.eval_runs import RunFilter, create_run, get_run
 from sobesnik_api.services.voice import add_reference_transcript
 from sobesnik_api.settings import Settings
 from sobesnik_asr import FasterWhisperTranscriber, probe_audio
+
+
+def auth_headers() -> dict[str, str]:
+    """Сервисный токен API (006 §5.1), если он задан в env."""
+    token = os.environ.get("API_SERVICE_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "research" / "data" / "asr_check"
@@ -177,7 +185,7 @@ async def reference_run(
 
 async def through_api(settings: Settings, vacancy_name: str, timeout_s: float) -> None:
     files = samples()[:2]
-    async with httpx.AsyncClient(base_url=API, timeout=300) as api:
+    async with httpx.AsyncClient(base_url=API, timeout=300, headers=auth_headers()) as api:
         eval_model = (await api.get("/health/llm")).json()["roles"]["eval"]["model"]
         user = (await api.put("/users/telegram/900004")).json()["id"]
         text = (VACANCIES / f"{vacancy_name}.txt").read_text(encoding="utf-8")

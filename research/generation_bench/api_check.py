@@ -9,6 +9,7 @@
 
 import argparse
 import asyncio
+import os
 import statistics
 import time
 from pathlib import Path
@@ -16,6 +17,13 @@ from typing import Any
 
 import httpx
 import yaml
+
+
+def auth_headers() -> dict[str, str]:
+    """Сервисный токен API (006 §5.1), если он задан в env."""
+    token = os.environ.get("API_SERVICE_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
 
 HERE = Path(__file__).resolve().parent
 CACHE = HERE.parents[1] / "research" / "data" / "vacancies"
@@ -46,7 +54,7 @@ async def main() -> None:
     failures: list[str] = []
     timings: dict[str, list[float]] = {"vacancy": [], "session": []}
 
-    async with httpx.AsyncClient(base_url=args.api, timeout=900) as api:
+    async with httpx.AsyncClient(base_url=args.api, timeout=900, headers=auth_headers()) as api:
         health = (await api.get("/health/llm")).json()
         print("health/llm:", health)
         if health.get("status") != "ok" or set(health.get("roles", {})) != {"gen", "eval"}:

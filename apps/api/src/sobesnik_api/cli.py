@@ -24,7 +24,7 @@ from sobesnik_api.errors import AppError
 from sobesnik_api.export import ExportFilter, select_rows, write_csv
 from sobesnik_api.queue import ArqQueue, TaskQueue
 from sobesnik_api.services.datasets import get_dataset, import_dataset, list_datasets
-from sobesnik_api.services.eval_runs import RunFilter, create_run, get_run, run_config
+from sobesnik_api.services.eval_runs import RunFilter, create_run, get_run, restart_run
 from sobesnik_api.services.voice import AudioLimits, add_reference_transcript
 from sobesnik_api.settings import Settings
 from sobesnik_core.dataset import DatasetFormatError, parse_jsonl
@@ -201,14 +201,7 @@ async def run_command(
         print(format_run(await get_run(db, args.run_id)))
         return 0
     else:  # restart
-        run = await get_run(db, args.run_id)
-        run_config(run, max_retries=0, num_ctx=None)  # рубрика и промпт не изменились
-        if run.status == "running":
-            print("прогон уже идёт", file=sys.stderr)
-            return 1
-        run.status, run.error = "queued", None
-        await db.commit()
-        await queue.enqueue_run(run.id)
+        run = await restart_run(db, queue, args.run_id)
         print(format_run(run))
     if args.wait:
         run = await _wait(db, run.id)
