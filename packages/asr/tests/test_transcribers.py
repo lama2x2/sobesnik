@@ -86,3 +86,32 @@ def test_factory() -> None:
     whisper = make_transcriber(ASRConfig(model="medium"))
     assert isinstance(whisper, FasterWhisperTranscriber)
     assert whisper.model == "medium"
+
+
+async def test_prefetch_downloads_without_loading() -> None:
+    """Предзагрузка только качает модель: в память она попадёт при первом голосовом (008 §7)."""
+    downloads: list[str] = []
+
+    def factory() -> object:
+        raise AssertionError("prefetch не должен загружать модель")
+
+    asr = FasterWhisperTranscriber(
+        "small", model_factory=factory, downloader=lambda: downloads.append("small")
+    )
+    await asr.prefetch()
+    assert downloads == ["small"]
+
+
+async def test_prefetch_failure_is_asr_error() -> None:
+    def downloader() -> object:
+        raise OSError("нет сети")
+
+    asr = FasterWhisperTranscriber("small", downloader=downloader)
+    with pytest.raises(ASRError, match="не скачалась"):
+        await asr.prefetch()
+
+
+def test_device_from_config() -> None:
+    asr = make_transcriber(ASRConfig(device="cuda", compute_type="float16"))
+    assert isinstance(asr, FasterWhisperTranscriber)
+    assert asr.params(None)["device"] == "cuda"

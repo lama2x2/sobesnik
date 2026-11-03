@@ -4,7 +4,13 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from sobesnik_llm import LLMError, LLMRequest, LLMUnavailableError, OllamaProvider
+from sobesnik_llm import (
+    LLMError,
+    LLMModelMissingError,
+    LLMRequest,
+    LLMUnavailableError,
+    OllamaProvider,
+)
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -90,6 +96,34 @@ async def test_generate_transport_errors(exc: Exception) -> None:
         await make(handler).generate(LLMRequest(system="s", prompt="p"))
 
 
+async def test_generate_missing_model_hints_pull() -> None:
+    provider = make(lambda _: httpx.Response(404, json={"error": "model not found"}))
+    with pytest.raises(LLMModelMissingError) as info:
+        await provider.generate(LLMRequest(system="s", prompt="p"))
+    assert info.value.hint is not None
+    assert "ollama pull qwen3:8b" in info.value.hint
+
+
+async def test_generate_connect_error_hints_start_ollama() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    with pytest.raises(LLMUnavailableError) as info:
+        await make(handler).generate(LLMRequest(system="s", prompt="p"))
+    assert not isinstance(info.value, LLMModelMissingError)
+    assert info.value.hint is not None
+    assert "Запустите Ollama" in info.value.hint
+
+
+async def test_generate_timeout_has_no_hint() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow")
+
+    with pytest.raises(LLMUnavailableError) as info:
+        await make(handler).generate(LLMRequest(system="s", prompt="p"))
+    assert info.value.hint is None
+
+
 async def test_generate_bad_request_is_llm_error() -> None:
     provider = make(lambda _: httpx.Response(400, json={"error": "bad"}))
     with pytest.raises(LLMError) as info:
@@ -115,6 +149,8 @@ async def test_health_model_missing() -> None:
     assert not health.ok
     assert health.detail is not None
     assert "не скачана" in health.detail
+    assert health.hint is not None
+    assert "ollama pull qwen3:8b" in health.hint
 
 
 async def test_health_latest_tag_matches_bare_name() -> None:
@@ -135,3 +171,5 @@ async def test_health_unreachable() -> None:
     assert not health.ok
     assert health.detail is not None
     assert "недоступна" in health.detail
+    assert health.hint is not None
+    assert "Запустите Ollama" in health.hint

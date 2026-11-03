@@ -5,7 +5,14 @@ from typing import Any
 
 import httpx
 
-from sobesnik_llm.base import LLMError, LLMHealth, LLMRequest, LLMResponse, LLMUnavailableError
+from sobesnik_llm.base import (
+    LLMError,
+    LLMHealth,
+    LLMModelMissingError,
+    LLMRequest,
+    LLMResponse,
+    LLMUnavailableError,
+)
 
 
 class OllamaProvider:
@@ -56,7 +63,9 @@ class OllamaProvider:
         response = await self._request("POST", "/api/chat", json=self.build_payload(request))
         latency_ms = round((time.perf_counter() - started) * 1000)
         if response.status_code == 404:
-            raise LLMUnavailableError(f"модель {self.model} не найдена в Ollama")
+            raise LLMModelMissingError(
+                f"модель {self.model} не найдена в Ollama", hint=self.pull_hint
+            )
         if response.status_code >= 500:
             raise LLMUnavailableError(f"Ollama ответила {response.status_code}")
         if response.status_code != 200:
@@ -81,13 +90,29 @@ class OllamaProvider:
             response.raise_for_status()
             names = {m.get("name") for m in response.json().get("models", [])}
         except (LLMUnavailableError, httpx.HTTPError, ValueError) as exc:
-            return self._health(ok=False, detail=f"Ollama недоступна: {exc}")
+            return self._health(ok=False, detail=f"Ollama недоступна: {exc}", hint=self.down_hint)
         if self.model not in names and f"{self.model}:latest" not in names:
-            return self._health(ok=False, detail=f"модель {self.model} не скачана")
+            return self._health(
+                ok=False, detail=f"модель {self.model} не скачана", hint=self.pull_hint
+            )
         return self._health(ok=True)
 
-    def _health(self, *, ok: bool, detail: str | None = None) -> LLMHealth:
-        return LLMHealth(ok=ok, provider=self.name, model=self.model, detail=detail)
+    @property
+    def pull_hint(self) -> str:
+        return (
+            f"Модель {self.model} не скачана. На компьютере с Sobesnik выполните: "
+            f"ollama pull {self.model}"
+        )
+
+    @property
+    def down_hint(self) -> str:
+        return (
+            f"Не достучался до Ollama ({self._base_url}). Запустите Ollama "
+            "(приложение на Маке или ollama serve) и попробуйте ещё раз."
+        )
+
+    def _health(self, *, ok: bool, detail: str | None = None, hint: str | None = None) -> LLMHealth:
+        return LLMHealth(ok=ok, provider=self.name, model=self.model, detail=detail, hint=hint)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:
@@ -97,4 +122,6 @@ class OllamaProvider:
         except httpx.TimeoutException as exc:
             raise LLMUnavailableError("таймаут запроса к Ollama") from exc
         except httpx.TransportError as exc:
-            raise LLMUnavailableError(f"нет соединения с Ollama: {exc}") from exc
+            raise LLMUnavailableError(
+                f"нет соединения с Ollama: {exc}", hint=self.down_hint
+            ) from exc

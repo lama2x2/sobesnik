@@ -8,6 +8,7 @@ import pytest
 from sobesnik_api.sources.extract import extract_vacancy_text, is_hh, page_host, truncate
 from sobesnik_api.sources.fetch import (
     MAX_PAGE_BYTES,
+    FakeIpError,
     UrlNotAllowedError,
     UrlUnreadableError,
     is_public_ip,
@@ -74,13 +75,20 @@ async def test_allow_private(web: Any, replies: Any) -> None:
     assert (await web.fetcher(allow_private=True).fetch(URL)).content == b"<p>ok</p>"
 
 
+async def test_fake_ip_198_18_allowed_by_default(web: Any, replies: Any) -> None:
+    """VPN с fake-IP из 198.18.0.0/15 — ссылки работают без настройки (008, решение 2)."""
+    web.dns["jobs.example.com"] = ["198.18.0.42"]
+    web.pages[URL] = replies.html("<p>ok</p>")
+    assert (await web.fetcher().fetch(URL)).content == b"<p>ok</p>"
+
+
 async def test_fake_ip_vpn_networks(web: Any, replies: Any) -> None:
     """VPN с fake-IP: имя резолвится в 240.0.0.0/4 (006 §4.6)."""
     web.dns["jobs.example.com"] = ["240.0.0.82"]
     web.pages[URL] = replies.html("<p>ok</p>")
-    with pytest.raises(UrlNotAllowedError, match="FETCH_ALLOW_NETWORKS"):
+    with pytest.raises(FakeIpError, match="FETCH_ALLOW_NETWORKS"):
         await web.fetcher().fetch(URL)
-    fetcher = web.fetcher(allow_networks="198.18.0.0/15, 240.0.0.0/4")
+    fetcher = web.fetcher(allow_networks="240.0.0.0/4")
     assert (await fetcher.fetch(URL)).content == b"<p>ok</p>"
     # остальные внутренние адреса по-прежнему закрыты
     web.dns["jobs.example.com"] = ["10.0.0.5"]

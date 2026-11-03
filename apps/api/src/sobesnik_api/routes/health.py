@@ -29,6 +29,7 @@ async def health_llm(roles: Roles) -> JSONResponse:
                 "provider": r.provider,
                 "model": r.model,
                 "detail": r.detail,
+                "hint": r.hint,
             }
             for role, r in results.items()
         },

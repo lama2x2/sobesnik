@@ -6,6 +6,7 @@ import pytest
 
 from sobesnik_llm import (
     LLMError,
+    LLMModelMissingError,
     LLMRequest,
     LLMUnavailableError,
     OpenAICompatibleProvider,
@@ -122,6 +123,30 @@ async def test_error_statuses(status: int) -> None:
     assert not isinstance(info.value, LLMUnavailableError)
     if status != 400:
         assert "ключ" in str(info.value)
+
+
+async def test_missing_model_hints_env() -> None:
+    with pytest.raises(LLMModelMissingError) as info:
+        await make(lambda _: httpx.Response(404)).generate(LLMRequest(system="s", prompt="p"))
+    assert info.value.hint is not None
+    assert "LLM_MODEL" in info.value.hint
+
+
+async def test_bad_key_hints_env() -> None:
+    with pytest.raises(LLMError) as info:
+        await make(lambda _: httpx.Response(401)).generate(LLMRequest(system="s", prompt="p"))
+    assert info.value.hint is not None
+    assert "LLM_API_KEY" in info.value.hint
+
+
+async def test_connect_error_hints_base_url() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    with pytest.raises(LLMUnavailableError) as info:
+        await make(handler).generate(LLMRequest(system="s", prompt="p"))
+    assert info.value.hint is not None
+    assert "LLM_BASE_URL" in info.value.hint
 
 
 @pytest.mark.parametrize(

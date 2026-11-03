@@ -3,7 +3,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from sobesnik_llm import LLMError, LLMOutputError, LLMUnavailableError
+from sobesnik_llm import LLMError, LLMModelMissingError, LLMOutputError, LLMUnavailableError
 
 
 class AppError(Exception):
@@ -72,13 +72,22 @@ URL_UNREADABLE = (
 URL_NOT_ALLOWED = (
     "Эту ссылку открыть нельзя. Пришлите текст вакансии или сохранённую страницу (.html)."
 )
+URL_FAKE_IP = (
+    "Похоже, включён VPN в режиме fake-IP — через него ссылку не открыть. Пришлите текст вакансии. "
+    "Чтобы ссылки работали, добавьте в .env строку FETCH_ALLOW_NETWORKS=240.0.0.0/4 "
+    "и выполните docker compose up -d."
+)
 HTML_UNREADABLE = "Не получилось найти вакансию на странице. Пришлите текст вакансии."
 
 
-def error_response(status_code: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code, content={"error": {"code": code, "message": message}}
-    )
+def error_response(
+    status_code: int, code: str, message: str, hint: str | None = None
+) -> JSONResponse:
+    """`hint` — что сделать человеку (008 §7); есть только у ошибок, которые он может исправить."""
+    error = {"code": code, "message": message}
+    if hint is not None:
+        error["hint"] = hint
+    return JSONResponse(status_code=status_code, content={"error": error})
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -86,9 +95,13 @@ def install_error_handlers(app: FastAPI) -> None:
     async def app_error(_: Request, exc: AppError) -> JSONResponse:
         return error_response(exc.status_code, exc.code, exc.message)
 
+    @app.exception_handler(LLMModelMissingError)
+    async def llm_model_missing(_: Request, exc: LLMModelMissingError) -> JSONResponse:
+        return error_response(503, "llm_model_missing", str(exc), exc.hint)
+
     @app.exception_handler(LLMUnavailableError)
     async def llm_unavailable(_: Request, exc: LLMUnavailableError) -> JSONResponse:
-        return error_response(503, "llm_unavailable", str(exc))
+        return error_response(503, "llm_unavailable", str(exc), exc.hint)
 
     @app.exception_handler(LLMOutputError)
     async def llm_bad_output(_: Request, exc: LLMOutputError) -> JSONResponse:
@@ -96,4 +109,4 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(LLMError)
     async def llm_error(_: Request, exc: LLMError) -> JSONResponse:
-        return error_response(502, "llm_error", str(exc))
+        return error_response(502, "llm_error", str(exc), exc.hint)

@@ -21,6 +21,8 @@ class FakeProvider:
         self.replies: list[Reply] = list(replies)
         self.requests: list[LLMRequest] = []
         self.available = True
+        self.hint: str | None = None
+        """Подсказка в `health()`, когда провайдер выключен."""
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
         self.requests.append(request)
@@ -35,8 +37,15 @@ class FakeProvider:
         return LLMResponse(text=text, provider=self.name, model=self.model, latency_ms=0)
 
     async def health(self) -> LLMHealth:
-        detail = None if self.available else "фейковый провайдер выключен"
-        return LLMHealth(ok=self.available, provider=self.name, model=self.model, detail=detail)
+        if self.available:
+            return LLMHealth(ok=True, provider=self.name, model=self.model)
+        return LLMHealth(
+            ok=False,
+            provider=self.name,
+            model=self.model,
+            detail="фейковый провайдер выключен",
+            hint=self.hint,
+        )
 
     async def aclose(self) -> None:
         pass

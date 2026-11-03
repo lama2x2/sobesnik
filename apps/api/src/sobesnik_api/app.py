@@ -1,5 +1,6 @@
 """Сборка приложения FastAPI. Без побочных эффектов при импорте — его используют тесты."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -9,7 +10,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from sobesnik_api.auth import require_service_token
 from sobesnik_api.db.session import make_engine, make_sessionmaker
 from sobesnik_api.errors import install_error_handlers
-from sobesnik_api.llm import LLMRoles, make_roles
+from sobesnik_api.llm import LLMRoles, log_llm_health, make_roles
 from sobesnik_api.queue import ArqQueue, TaskQueue
 from sobesnik_api.routes import admin, answers, health, sessions, users, vacancies
 from sobesnik_api.settings import Settings
@@ -46,6 +47,7 @@ def create_app(
             await sync_topics(db, load_topics())
         roles = LLMRoles(gen=llm, eval=llm_eval or llm) if llm else make_roles(settings)
         app.state.llm = roles
+        health_check = asyncio.create_task(log_llm_health(roles))
         app.state.fetcher = fetcher or PageFetcher(
             timeout_s=settings.fetch_timeout_s,
             allow_private=settings.fetch_allow_private,
@@ -61,6 +63,7 @@ def create_app(
         if settings.api_service_token is None:
             log.warning("service token not set: API is open to anyone who can reach it")
         yield
+        health_check.cancel()
         await app.state.queue.aclose()
         await app.state.fetcher.aclose()
         await roles.aclose()

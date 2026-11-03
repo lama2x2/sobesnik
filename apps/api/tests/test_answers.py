@@ -10,11 +10,12 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from sobesnik_api.worker import WorkerDeps, process_answer, recover
+from sobesnik_api.worker import WorkerDeps, prefetch_asr, process_answer, recover
+from sobesnik_asr import ASRError, FakeTranscriber
 from sobesnik_core.limits import ANSWER_MAX_CHARS
 from sobesnik_core.prompt import load_prompt
 from sobesnik_core.rubric import load_rubric
-from sobesnik_llm import FakeProvider, LLMError
+from sobesnik_llm import FakeProvider, LLMError, LLMModelMissingError
 
 ANSWER = "Индекс упорядочен по первому столбцу, поэтому по второму искать приходится везде."
 
@@ -206,6 +207,33 @@ async def test_unavailable_llm_retries_then_fails(
     assert (body["status"], body["error"]) == ("failed", "llm_unavailable")
     async with engine.connect() as conn:
         assert await conn.scalar(text("SELECT count(*) FROM evaluation")) == 0
+
+
+async def test_missing_model_fails_with_own_code(
+    client: AsyncClient, session: dict[str, Any], deps: WorkerDeps, llm: FakeProvider
+) -> None:
+    """Модель не скачана — повторы как при недоступности, в конце свой код (008 §7)."""
+    answer_id = uuid.UUID(await submit(client, session))
+    llm.replies = [LLMModelMissingError("модель не найдена", hint="ollama pull fake-model")]
+
+    with pytest.raises(Retry):
+        await process_answer(deps, answer_id, job_try=1)
+    await process_answer(deps, answer_id, job_try=3)
+    body = (await client.get(f"/answers/{answer_id}")).json()
+    assert (body["status"], body["error"]) == ("failed", "llm_model_missing")
+
+
+async def test_prefetch_asr_downloads_model() -> None:
+    transcriber = FakeTranscriber()
+    await prefetch_asr(transcriber)
+    assert transcriber.prefetched == 1
+
+
+async def test_prefetch_asr_failure_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> None:
+    transcriber = FakeTranscriber(prefetch_error=ASRError("нет сети"))
+    with caplog.at_level(logging.WARNING):
+        await prefetch_asr(transcriber)
+    assert "голосовые ответы пока не работают" in caplog.text
 
 
 async def test_evaluated_answer_is_not_evaluated_again(

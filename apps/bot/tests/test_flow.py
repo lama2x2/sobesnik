@@ -2,15 +2,17 @@
 
 import asyncio
 import contextlib
+import logging
 from typing import Any
 
+import pytest
 from aiogram import Bot
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendChatAction, SendMessage
 
 from sobesnik_bot import render
 from sobesnik_bot.__main__ import build_dispatcher
-from sobesnik_bot.api import ApiError, ApiUnavailable
+from sobesnik_bot.api import ApiError, ApiUnavailable, LlmStatus
 from sobesnik_bot.flow import Trainer, vacancy_source
 from sobesnik_bot.render import DetailsCb, ForgetCb, LevelCb, SkipCb, TrainCb
 from sobesnik_bot.state import StateStore
@@ -49,6 +51,20 @@ async def test_start_creates_user(user: Chat_, api: FakeApi, tg: FakeSession) ->
     await user.send("/help")
     assert api.names() == ["upsert_user"]  # пользователь уже известен
     assert "/forget" in tg.last_text()
+
+
+async def test_start_warns_when_model_missing(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    """Модель не готова — предупреждение сразу на /start, до вакансии (008 §7)."""
+    api.llm = LlmStatus(ok=False, model="qwen3.5:4b", hint="Выполните: ollama pull qwen3.5:4b")
+    await user.send("/start")
+    assert tg.last_text().startswith(render.INTRO)
+    assert tg.last_text().endswith("⚠️ Выполните: ollama pull qwen3.5:4b")
+
+
+async def test_start_without_llm_status(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    api.errors["llm_status"] = ApiUnavailable("ConnectError")
+    await user.send("/start")
+    assert tg.last_text() == render.INTRO
 
 
 async def test_vacancy_text_and_level(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
@@ -299,6 +315,28 @@ async def test_api_errors_on_answer(user: Chat_, api: FakeApi, tg: FakeSession) 
     assert tg.last_text() == "Что-то пошло не так (код: boom)."
 
 
+async def test_api_error_hint_is_shown(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    """У ошибки модели есть подсказка API — показываем её, а не общий текст (008 §7)."""
+    api.errors["create_vacancy"] = ApiError(
+        503, "llm_model_missing", "не найдена", "Модель x не скачана: ollama pull x"
+    )
+    await user.send("Ищем Python-разработчика: asyncio, PostgreSQL")
+    assert tg.last_text() == "Модель x не скачана: ollama pull x"
+    assert "ollama pull" in render.API_ERRORS["llm_model_missing"]
+    assert "ollama pull" in render.FAILURES["llm_model_missing"]
+
+
+async def test_ack_ms_logged(
+    user: Chat_, api: FakeApi, tg: FakeSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Время подтверждения приёма — в логе, для замера 000 §5."""
+    await in_training(user, api, tg)
+    with caplog.at_level(logging.INFO, logger="sobesnik_bot"):
+        await user.send("ответ")
+    accepted = [r for r in caplog.records if r.getMessage() == "answer accepted"]
+    assert accepted[0].ack_ms >= 0  # type: ignore[attr-defined]
+
+
 async def test_details_button(user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer) -> None:
     await in_training(user, api, tg)
     await user.send("ответ")
@@ -331,8 +369,10 @@ async def test_allowlist(trainer: Trainer, bot: Bot, api: FakeApi, tg: FakeSessi
     await stranger.send("вакансия")
     await stranger.press(ForgetCb(action="all_confirm").pack())
     assert api.calls == []
-    assert tg.texts() == [render.NOT_ALLOWED, render.NOT_ALLOWED]
-    assert tg.of(AnswerCallbackQuery)[-1].text == render.NOT_ALLOWED
+    denied = render.not_allowed(666)
+    assert "666" in denied and "BOT_ALLOWED_IDS" in denied
+    assert tg.texts() == [denied, denied]
+    assert tg.of(AnswerCallbackQuery)[-1].text == denied
 
     await Chat_(dp, bot).send("/start")
     assert api.names() == ["upsert_user"]

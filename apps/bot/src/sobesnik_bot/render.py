@@ -116,7 +116,23 @@ ASK_VACANCY = "Пришлите текст вакансии или ссылку 
 NO_VACANCY = "Сначала пришлите вакансию: текст или ссылку."
 VOICE_NOT_NOW = "Голосом отвечают на вопрос тренировки. Сначала вакансия, потом /train."
 WAIT_EVALUATION = "Жду оценку предыдущего ответа — пришлю её и следующий вопрос."
-NOT_ALLOWED = "Это закрытый инстанс Sobesnik."
+
+
+def not_allowed(telegram_id: int | None) -> str:
+    """Отказ закрытого инстанса (BOT-5) с id: владелец добавит его в allowlist (008 §7)."""
+    if telegram_id is None:
+        return "Это закрытый Sobesnik."
+    return (
+        f"Это закрытый Sobesnik. Ваш telegram_id: {telegram_id} — владелец может добавить его "
+        "в BOT_ALLOWED_IDS."
+    )
+
+
+def llm_warning(hint: str | None) -> str:
+    """Предупреждение к /start, если модель не готова (008 §7)."""
+    return "⚠️ " + escape(hint or "Модель сейчас недоступна — вакансию пока не разобрать.")
+
+
 FILE_TOO_BIG = (
     "Файл больше 20 МБ — Telegram не отдаёт боту такие. Запишите короче или ответьте текстом."
 )
@@ -403,6 +419,8 @@ FAILURES: dict[str, str] = {
     "no_transcript": "Распознавание речи не сработало. Попробуйте ещё раз или ответьте текстом.",
     "llm_unavailable": "Модель так и не ответила. Ответ сохранён — ответьте ещё раз, когда "
     "модель заработает.",
+    "llm_model_missing": "Модель для оценки не скачана. На компьютере с Sobesnik выполните "
+    "<code>ollama pull</code> с моделью из .env (по умолчанию qwen3.5:4b) — и ответьте ещё раз.",
     "llm_bad_output": "Модель ответила невнятно. Попробуйте ответить ещё раз.",
     "llm_error": "Модель ответила ошибкой. Попробуйте ответить ещё раз.",
 }
@@ -410,6 +428,8 @@ FAILURES: dict[str, str] = {
 
 API_ERRORS: dict[str, str] = {
     "llm_unavailable": "Модель сейчас недоступна. Попробуйте через минуту.",
+    "llm_model_missing": "Модель не скачана. На компьютере с Sobesnik выполните "
+    "<code>ollama pull</code> с моделью из .env (по умолчанию qwen3.5:4b).",
     "llm_bad_output": "Модель ответила невнятно. Попробуйте ещё раз.",
     "llm_error": "Модель ответила ошибкой. Попробуйте ещё раз.",
     "api_unavailable": "Сервис временно недоступен, попробуйте позже.",
@@ -434,6 +454,8 @@ def failure_text(code: str | None) -> str:
 
 
 def api_error_text(error: ApiError) -> str:
+    if error.hint:  # API знает точнее: какая модель, какой адрес (008 §7)
+        return escape(error.hint)
     if error.code in API_ERRORS:
         return API_ERRORS[error.code]
     if error.code in HUMAN_MESSAGE_CODES:

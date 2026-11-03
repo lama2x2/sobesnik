@@ -27,7 +27,12 @@ FAKE_IP_NETWORKS: tuple[Network, ...] = (
     ipaddress.ip_network("198.18.0.0/15"),
     ipaddress.ip_network("240.0.0.0/4"),
 )
-"""Куда VPN-клиенты в режиме fake-IP резолвят любые имена (006 §4.6); только для подсказки."""
+"""Куда VPN-клиенты в режиме fake-IP резолвят любые имена (006 §4.6)."""
+
+DEFAULT_ALLOW_NETWORKS: tuple[Network, ...] = (ipaddress.ip_network("198.18.0.0/15"),)
+"""Считаются внешними всегда (008, решение 2): диапазон для тестов сетевого оборудования, в обычной
+сети его нет, а VPN в режиме fake-IP (Clash, sing-box) раздаёт из него адреса всем сайтам.
+Сервисы compose живут в 172.x и остаются закрытыми. `240.0.0.0/4` — только через env."""
 
 
 class SourceError(Exception):
@@ -36,6 +41,10 @@ class SourceError(Exception):
 
 class UrlNotAllowedError(SourceError):
     pass
+
+
+class FakeIpError(UrlNotAllowedError):
+    """Имя резолвится в диапазон fake-IP VPN, который не объявлен внешним."""
 
 
 class UrlUnreadableError(SourceError):
@@ -103,7 +112,7 @@ async def check_host(
         raise UrlUnreadableError("хост не резолвится")
     if not all(is_public_ip(a, allowed) for a in addresses):
         if all(any(_ip(a) in n for n in FAKE_IP_NETWORKS) for a in addresses):
-            raise UrlNotAllowedError(
+            raise FakeIpError(
                 "адрес из диапазона fake-IP VPN: если ссылки идут через VPN, "
                 "задайте FETCH_ALLOW_NETWORKS=198.18.0.0/15,240.0.0.0/4"
             )
@@ -122,7 +131,7 @@ class PageFetcher:
     ) -> None:
         self._timeout_s = timeout_s
         self._allow_private = allow_private
-        self._allow_networks = tuple(allow_networks)
+        self._allow_networks = (*DEFAULT_ALLOW_NETWORKS, *allow_networks)
         self._client = client or httpx.AsyncClient()
         self._resolver = resolver
 

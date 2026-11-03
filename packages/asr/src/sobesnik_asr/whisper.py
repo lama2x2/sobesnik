@@ -1,4 +1,4 @@
-"""Распознавание faster-whisper на CPU (004 §5.1)."""
+"""Распознавание faster-whisper на CPU или CUDA (004 §5.1, 008 §4)."""
 
 import asyncio
 import io
@@ -17,6 +17,9 @@ log = logging.getLogger(__name__)
 ModelFactory = Callable[[], Any]
 """Создаёт объект с методом `transcribe`, как у `faster_whisper.WhisperModel`.
 Подменяется в тестах."""
+
+Downloader = Callable[[], object]
+"""Скачивает модель в кэш и возвращает путь. Подменяется в тестах."""
 
 
 class FasterWhisperTranscriber:
@@ -39,6 +42,7 @@ class FasterWhisperTranscriber:
         cpu_threads: int = 0,
         vad_filter: bool = True,
         model_factory: ModelFactory | None = None,
+        downloader: Downloader | None = None,
     ) -> None:
         self.model = model
         self._model_dir = model_dir
@@ -48,6 +52,7 @@ class FasterWhisperTranscriber:
         self._cpu_threads = cpu_threads
         self._vad_filter = vad_filter
         self._factory = model_factory or self._default_factory
+        self._downloader = downloader or self._default_downloader
         self._whisper: Any = None
         self._lock = threading.Lock()
 
@@ -62,6 +67,29 @@ class FasterWhisperTranscriber:
             cpu_threads=self._cpu_threads,
             download_root=self._model_dir,
         )
+
+    def _default_downloader(self) -> object:
+        from faster_whisper.utils import download_model  # type: ignore[import-untyped]
+
+        # тот же кэш, что у WhisperModel(download_root=...): второй раз ничего не качается
+        return download_model(self.model, cache_dir=self._model_dir)
+
+    def _download(self) -> None:
+        started = time.perf_counter()
+        try:
+            self._downloader()
+        except Exception as exc:
+            raise ASRError(f"модель {self.model} не скачалась: {type(exc).__name__}") from exc
+        log.info(
+            "asr model ready",
+            extra={
+                "asr_model": self.model,
+                "prefetch_ms": int((time.perf_counter() - started) * 1000),
+            },
+        )
+
+    async def prefetch(self) -> None:
+        await asyncio.to_thread(self._download)
 
     def _load(self) -> Any:
         with self._lock:

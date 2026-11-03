@@ -3,15 +3,30 @@
 import json
 import logging
 import uuid
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import httpx
 import pytest
+from aiogram import Bot
+from aiogram.client.session.base import BaseSession
+from aiogram.exceptions import TelegramNetworkError, TelegramUnauthorizedError
+from aiogram.methods import GetMe, TelegramMethod
+from aiogram.methods.base import TelegramType
+from aiogram.types import User
 from redis.asyncio import Redis
 
 from sobesnik_bot import render
+from sobesnik_bot.__main__ import TOKEN_REJECTED, connect, llm_summary
 from sobesnik_bot.api import Answer, ApiClient, ApiError, ApiUnavailable, Evaluation, Transcript
 from sobesnik_bot.events import GROUP, EventConsumer
-from sobesnik_bot.logs import JsonFormatter, RedactingFormatter
+from sobesnik_bot.logs import (
+    NO_TELEGRAM,
+    TOKEN_CONFLICT,
+    HumanErrorsFilter,
+    JsonFormatter,
+    RedactingFormatter,
+)
 
 from .conftest import TOKEN
 
@@ -153,3 +168,109 @@ async def test_api_client_errors() -> None:
     with pytest.raises(ApiUnavailable):
         await offline.upsert_user(1)
     await offline.aclose()
+
+
+def fetch_failed(kind: str) -> logging.LogRecord:
+    return logging.makeLogRecord(
+        {
+            "name": "aiogram.dispatcher",
+            "msg": "Failed to fetch updates - %s: %s",
+            "args": (kind, "Conflict: terminated by other getUpdates request"),
+        }
+    )
+
+
+def test_human_errors_filter() -> None:
+    """Сбои опроса Telegram — понятной фразой и не чаще раза в минуту (008 §7)."""
+    now = [0.0]
+    filt = HumanErrorsFilter(every_s=60, clock=lambda: now[0])
+    record = fetch_failed("TelegramConflictError")
+    assert filt.filter(record)
+    assert record.getMessage() == TOKEN_CONFLICT
+    now[0] = 5
+    assert not filt.filter(fetch_failed("TelegramConflictError"))
+    assert filt.filter(fetch_failed("TelegramNetworkError"))  # другой вид — своё окно
+    now[0] = 61
+    assert filt.filter(fetch_failed("TelegramConflictError"))
+    other = logging.makeLogRecord({"msg": "Failed to fetch updates - ValueError: x"})
+    assert filt.filter(other)
+    assert filt.filter(logging.makeLogRecord({"msg": "bot started"}))
+
+
+class ScriptedSession(BaseSession):
+    """`getMe`: по очереди бросает исключения из `script`, потом отвечает ботом."""
+
+    def __init__(self, script: list[Exception]) -> None:
+        super().__init__()
+        self.script = script
+
+    async def make_request(
+        self,
+        bot: Bot,
+        method: TelegramMethod[TelegramType],
+        timeout: int | None = None,  # noqa: ASYNC109 — сигнатура aiogram
+    ) -> TelegramType:
+        assert isinstance(method, GetMe)
+        if self.script:
+            raise self.script.pop(0)
+        return User(id=1, is_bot=True, first_name="Sobesnik", username="sobesnik_bot")  # type: ignore[return-value]
+
+    async def stream_content(self, *args: Any, **kwargs: Any) -> AsyncGenerator[bytes, None]:
+        yield b""
+
+    async def close(self) -> None:
+        pass
+
+
+async def test_connect_rejected_token(caplog: pytest.LogCaptureFixture) -> None:
+    session = ScriptedSession([TelegramUnauthorizedError(method=GetMe(), message="Unauthorized")])
+    with caplog.at_level(logging.ERROR):
+        assert await connect(Bot(TOKEN, session=session), retry_s=0) is None
+    assert TOKEN_REJECTED in caplog.text
+
+
+async def test_connect_retries_without_network(caplog: pytest.LogCaptureFixture) -> None:
+    session = ScriptedSession([TelegramNetworkError(method=GetMe(), message="Cannot connect")] * 2)
+    with caplog.at_level(logging.WARNING):
+        me = await connect(Bot(TOKEN, session=session), retry_s=0)
+    assert me is not None and me.username == "sobesnik_bot"
+    assert caplog.text.count(NO_TELEGRAM) == 2
+
+
+async def test_llm_status_and_summary() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/health/llm"
+        bad = {"ok": False, "model": "qwen3.5:4b", "hint": "ollama pull qwen3.5:4b"}
+        return httpx.Response(
+            503, json={"status": "unavailable", "roles": {"gen": bad, "eval": bad}}
+        )
+
+    api = ApiClient(
+        "http://api/api/v1", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    status = await api.llm_status()
+    assert (status.ok, status.hint) == (False, "ollama pull qwen3.5:4b")
+    assert await llm_summary(api) == "ollama pull qwen3.5:4b"
+    await api.aclose()
+
+    def ok(_: httpx.Request) -> httpx.Response:
+        good = {"ok": True, "model": "qwen3.5:4b", "hint": None}
+        return httpx.Response(200, json={"status": "ok", "roles": {"gen": good, "eval": good}})
+
+    api = ApiClient(
+        "http://api/api/v1", client=httpx.AsyncClient(transport=httpx.MockTransport(ok))
+    )
+    assert await llm_summary(api) == "модель qwen3.5:4b готова"
+    await api.aclose()
+
+
+async def test_api_error_carries_hint() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        body = {"error": {"code": "llm_model_missing", "message": "нет", "hint": "ollama pull x"}}
+        return httpx.Response(503, json=body)
+
+    api = ApiClient("http://api", client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with pytest.raises(ApiError) as err:
+        await api.upsert_user(1)
+    assert (err.value.code, err.value.hint) == ("llm_model_missing", "ollama pull x")
+    await api.aclose()

@@ -26,8 +26,9 @@ class AllowlistMiddleware(BaseMiddleware):
         if not self.allowed or (user is not None and user.id in self.allowed):
             return await handler(event, data)
         log.info("access denied", extra={"telegram_id": user.id if user else None})
+        text = render.not_allowed(user.id if user else None)
         if isinstance(event, Message):
-            await event.answer(render.NOT_ALLOWED)
+            await event.answer(text)
         elif isinstance(event, CallbackQuery):
-            await event.answer(render.NOT_ALLOWED, show_alert=True)
+            await event.answer(text, show_alert=True)
         return None

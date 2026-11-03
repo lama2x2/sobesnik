@@ -12,7 +12,12 @@ from sobesnik_api.db.models import Requirement, User, Vacancy
 from sobesnik_api.errors import NotFoundError, UnprocessableError
 from sobesnik_api.schemas import VacancyCreate, VacancyPatch
 from sobesnik_api.sources.extract import extract_vacancy_text
-from sobesnik_api.sources.fetch import PageFetcher, UrlNotAllowedError, UrlUnreadableError
+from sobesnik_api.sources.fetch import (
+    FakeIpError,
+    PageFetcher,
+    UrlNotAllowedError,
+    UrlUnreadableError,
+)
 from sobesnik_core.generation import parse_prompt
 from sobesnik_core.limits import MIN_VACANCY_CHARS, PARSE_MAX_TOKENS
 from sobesnik_core.prompt import load_prompt
@@ -57,7 +62,8 @@ async def resolve_text(body: VacancyCreate, fetcher: PageFetcher) -> VacancyText
             page = await fetcher.fetch(body.url)
         except UrlNotAllowedError as exc:
             log.info("vacancy url rejected", extra={"reason": str(exc)})
-            raise UnprocessableError("url_not_allowed", errors.URL_NOT_ALLOWED) from exc
+            message = errors.URL_FAKE_IP if isinstance(exc, FakeIpError) else errors.URL_NOT_ALLOWED
+            raise UnprocessableError("url_not_allowed", message) from exc
         except UrlUnreadableError as exc:
             log.info("vacancy url unreadable", extra={"reason": str(exc)})
             raise UnprocessableError("url_unreadable", errors.URL_UNREADABLE) from exc

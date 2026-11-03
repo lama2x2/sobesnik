@@ -156,14 +156,25 @@ class Progress(_Model):
     sessions: list[SessionHistory]
 
 
-class ApiError(Exception):
-    """Ответ API с ошибкой: `{"error": {"code", "message"}}` или стандартный `422` FastAPI."""
+class LlmStatus(_Model):
+    """`GET /health/llm`, сжатый до того, что нужно боту (008 §7)."""
 
-    def __init__(self, status: int, code: str, message: str) -> None:
+    ok: bool
+    model: str | None = None
+    hint: str | None = None
+
+
+class ApiError(Exception):
+    """Ответ API с ошибкой: `{"error": {"code", "message", "hint"?}}` или стандартный `422`
+    FastAPI."""
+
+    def __init__(self, status: int, code: str, message: str, hint: str | None = None) -> None:
         super().__init__(f"{status} {code}: {message}")
         self.status = status
         self.code = code
         self.message = message
+        self.hint = hint
+        """Что сделать человеку (008 §7): есть у ошибок модели, которые он может исправить сам."""
 
 
 class ApiUnavailable(ApiError):
@@ -174,6 +185,8 @@ class ApiUnavailable(ApiError):
 
 
 class Api(Protocol):
+    async def llm_status(self) -> LlmStatus: ...
+
     async def upsert_user(self, telegram_id: int) -> User: ...
 
     async def create_vacancy(
@@ -233,7 +246,13 @@ def _error(response: httpx.Response) -> ApiError:
         body = None
     if isinstance(body, dict) and isinstance(body.get("error"), dict):
         err = body["error"]
-        return ApiError(response.status_code, str(err.get("code")), str(err.get("message")))
+        hint = err.get("hint")
+        return ApiError(
+            response.status_code,
+            str(err.get("code")),
+            str(err.get("message")),
+            hint if isinstance(hint, str) else None,
+        )
     if response.status_code == 422:  # проверка запроса FastAPI
         return ApiError(422, "validation_error", "запрос не прошёл проверку")
     if response.status_code >= 500:
@@ -258,6 +277,17 @@ class ApiClient:
         if response.is_error:
             raise _error(response)
         return model.model_validate(response.json())
+
+    async def llm_status(self) -> LlmStatus:
+        """503 здесь — не ошибка, а ответ «модель не готова» с подсказкой в теле."""
+        try:
+            response = await self._client.get(self._base + "/health/llm")
+            roles = response.json()["roles"]
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise ApiUnavailable(type(exc).__name__) from exc
+        bad = [r for r in roles.values() if not r.get("ok")]
+        role = bad[0] if bad else next(iter(roles.values()), {})
+        return LlmStatus(ok=not bad, model=role.get("model"), hint=role.get("hint"))
 
     async def upsert_user(self, telegram_id: int) -> User:
         return await self._call(User, "PUT", f"/users/telegram/{telegram_id}")

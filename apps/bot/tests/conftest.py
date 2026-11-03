@@ -30,6 +30,7 @@ from sobesnik_bot.api import (
     Evaluation,
     Forgotten,
     Level,
+    LlmStatus,
     Progress,
     Requirement,
     Session,
@@ -157,6 +158,8 @@ class FakeApi:
         self.closed = False
         self.gate: asyncio.Event | None = None
         """Если задан, разбор вакансии ждёт его — как долгий вызов модели."""
+        self.llm = LlmStatus(ok=True, model="qwen3.5:4b")
+        """Ответ `llm_status`; в `calls` не пишется — его спрашивают попутно, на /start."""
 
     def _call(self, name: str, **kwargs: Any) -> None:
         self.calls.append((name, kwargs))
@@ -165,6 +168,11 @@ class FakeApi:
 
     def names(self) -> list[str]:
         return [name for name, _ in self.calls]
+
+    async def llm_status(self) -> LlmStatus:
+        if "llm_status" in self.errors:
+            raise self.errors.pop("llm_status")
+        return self.llm
 
     async def upsert_user(self, telegram_id: int) -> User:
         self._call("upsert_user", telegram_id=telegram_id)

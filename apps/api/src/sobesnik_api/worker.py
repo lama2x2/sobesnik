@@ -6,6 +6,7 @@
 `process_cleanup`: тесты вызывают их напрямую с `WorkerDeps`, без Redis.
 """
 
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -46,7 +47,7 @@ from sobesnik_asr import (
     Transcriber,
     make_transcriber,
 )
-from sobesnik_llm import LLMProvider, LLMUnavailableError, make_provider
+from sobesnik_llm import LLMModelMissingError, LLMProvider, LLMUnavailableError, make_provider
 
 log = logging.getLogger(__name__)
 
@@ -215,9 +216,14 @@ async def process_answer(deps: WorkerDeps, answer_id: uuid.UUID, job_try: int = 
             evaluation = await evaluate_and_store(
                 db, deps.llm, config, answer, transcript=transcript
             )
-        except LLMUnavailableError:
+        except LLMUnavailableError as exc:
             if job_try >= settings.eval_max_tries:
-                await _set_status(deps, db, answer, "failed", "llm_unavailable")
+                code = (
+                    "llm_model_missing"
+                    if isinstance(exc, LLMModelMissingError)
+                    else "llm_unavailable"
+                )
+                await _set_status(deps, db, answer, "failed", code)
                 log.warning("answer failed", extra={"answer_id": str(answer_id), "tries": job_try})
                 return
             log.info(
@@ -290,6 +296,20 @@ def make_run_llm(settings: Settings, shared: LLMProvider) -> RunLLM:
     return run_llm
 
 
+async def prefetch_asr(transcriber: Transcriber) -> None:
+    """Докачивает модель whisper при старте, чтобы первое голосовое не ждало загрузку (008 §7).
+    Сбой не мешает воркеру: текстовые ответы оцениваются, голос попробует скачать модель сам."""
+    try:
+        await transcriber.prefetch()
+    except ASRError as exc:
+        log.warning(
+            "Модель распознавания речи не скачалась: голосовые ответы пока не работают, "
+            "текстом можно. Проверьте интернет или VPN и перезапустите: "
+            "docker compose restart worker",
+            extra={"asr_model": transcriber.model, "error": str(exc)},
+        )
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     settings = Settings()
     configure_logging(settings.log_level)
@@ -313,9 +333,11 @@ async def startup(ctx: dict[str, Any]) -> None:
     except StorageError as exc:
         log.warning("audio bucket not ready", extra={"error": type(exc).__name__})
     await recover(ctx["deps"], queue)
+    ctx["prefetch"] = asyncio.create_task(prefetch_asr(ctx["deps"].transcriber))
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
+    ctx["prefetch"].cancel()
     await ctx["deps"].llm.aclose()
     await ctx["deps"].transcriber.aclose()
     await ctx["deps"].events.aclose()

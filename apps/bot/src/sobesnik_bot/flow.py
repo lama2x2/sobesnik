@@ -229,7 +229,12 @@ class Trainer:
         except ApiError as exc:
             await self._send(chat_id, render.api_error_text(exc))
             return
-        await self._send(chat_id, render.HELP if help else render.INTRO)
+        text = render.HELP if help else render.INTRO
+        with contextlib.suppress(ApiError):  # не узнали — не пугаем, ошибка будет на вакансии
+            llm = await self.api.llm_status()
+            if not llm.ok:
+                text += "\n\n" + render.llm_warning(llm.hint)
+        await self._send(chat_id, text)
 
     async def new_vacancy(self, chat_id: int, telegram_id: int) -> None:
         state = await self.store.get_user(telegram_id)
@@ -359,6 +364,7 @@ class Trainer:
         self, chat_id: int, telegram_id: int, state: UserState, text: str
     ) -> None:
         assert state.session_id is not None and state.question_id is not None
+        started = time.monotonic()
         try:
             accepted = await self.api.answer_text(state.session_id, state.question_id, text)
         except ApiError as exc:
@@ -367,7 +373,7 @@ class Trainer:
                 chat_id, render.ANSWER_TOO_LONG if too_long else render.api_error_text(exc)
             )
             return
-        await self._accepted(chat_id, telegram_id, state, accepted, "text")
+        await self._accepted(chat_id, telegram_id, state, accepted, "text", started)
 
     async def voice(
         self,
@@ -380,6 +386,7 @@ class Trainer:
         mime: str,
     ) -> None:
         """Голосовой ответ (С3): файл скачивается в память и уходит в API, на диск не пишется."""
+        started = time.monotonic()
         state = await self.store.get_user(telegram_id)
         if state.mode == "waiting":
             await self._send(chat_id, render.WAIT_EVALUATION)
@@ -406,14 +413,23 @@ class Trainer:
             return
         finally:
             del data, buffer
-        await self._accepted(chat_id, telegram_id, state, accepted, "voice")
+        await self._accepted(chat_id, telegram_id, state, accepted, "voice", started)
 
     async def _accepted(
-        self, chat_id: int, telegram_id: int, state: UserState, accepted: Accepted, kind: str
+        self,
+        chat_id: int,
+        telegram_id: int,
+        state: UserState,
+        accepted: Accepted,
+        kind: str,
+        started: float,
     ) -> None:
-        """Приём подтверждается сразу (BOT-4), дальше статус меняют события (BOT-6)."""
+        """Приём подтверждается сразу (BOT-4), дальше статус меняют события (BOT-6).
+
+        `started` — `time.monotonic()` при получении сообщения: `ack_ms` в логе — замер 000 §5."""
         assert state.session_id is not None and state.question_id is not None
         message = await self._send(chat_id, render.status_text(kind, "received"))
+        ack_ms = round((time.monotonic() - started) * 1000)
         pending = Pending(
             answer_id=accepted.answer_id,
             telegram_id=telegram_id,
@@ -429,7 +445,12 @@ class Trainer:
         await self.store.save_user(telegram_id, state)
         log.info(
             "answer accepted",
-            extra={"telegram_id": telegram_id, "answer_id": str(accepted.answer_id), "kind": kind},
+            extra={
+                "telegram_id": telegram_id,
+                "answer_id": str(accepted.answer_id),
+                "kind": kind,
+                "ack_ms": ack_ms,
+            },
         )
         self._start_typing(pending)
 

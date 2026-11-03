@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     asr_model: str = "small"
     asr_language: str = "ru"
     """`auto` — автоопределение языка."""
+    asr_device: str = "cpu"
     asr_compute_type: str = "int8"
     asr_beam_size: int = 5
     asr_cpu_threads: int = 0
@@ -119,6 +120,7 @@ class Settings(BaseSettings):
             provider=self.asr_provider,
             model=self.asr_model,
             model_dir=self.asr_model_dir,
+            device=self.asr_device,
             compute_type=self.asr_compute_type,
             beam_size=self.asr_beam_size,
             cpu_threads=self.asr_cpu_threads,

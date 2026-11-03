@@ -8,19 +8,30 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand
+from aiogram.exceptions import TelegramNetworkError, TelegramUnauthorizedError
+from aiogram.types import BotCommand, User
 from redis.asyncio import Redis
 
 from sobesnik_bot.access import AllowlistMiddleware
-from sobesnik_bot.api import ApiClient
+from sobesnik_bot.api import Api, ApiClient, ApiError
 from sobesnik_bot.events import EventConsumer
 from sobesnik_bot.flow import Trainer
 from sobesnik_bot.handlers import build_router
-from sobesnik_bot.logs import configure_logging
+from sobesnik_bot.logs import NO_TELEGRAM, configure_logging
 from sobesnik_bot.settings import BotSettings
 from sobesnik_bot.state import StateStore
 
 log = logging.getLogger("sobesnik_bot")
+
+NO_TOKEN = (
+    "Бот не запущен: в .env пустой TELEGRAM_BOT_TOKEN. Получите токен у @BotFather (/newbot), "
+    "впишите его в .env и выполните: docker compose up -d"
+)
+TOKEN_REJECTED = (
+    "Бот не запущен: Telegram не принял токен. Скопируйте его заново у @BotFather "
+    "(/mybots → API Token), впишите в TELEGRAM_BOT_TOKEN в .env и выполните: docker compose up -d"
+)
+CONNECT_RETRY_S = 30.0
 
 COMMANDS = [
     BotCommand(command="new", description="новая вакансия"),
@@ -39,6 +50,31 @@ def build_dispatcher(trainer: Trainer, allowed: frozenset[int]) -> Dispatcher:
     dp.callback_query.outer_middleware(access)
     dp.include_router(build_router(trainer))
     return dp
+
+
+async def connect(bot: Bot, retry_s: float = CONNECT_RETRY_S) -> User | None:
+    """Проверяет токен до старта (008 §7). Неверный — `None`: бот выходит с кодом 0, без
+    перезапусков по кругу; нет сети — ждёт и повторяет, без трейсбека."""
+    while True:
+        try:
+            return await bot.get_me()
+        except TelegramUnauthorizedError:
+            log.error(TOKEN_REJECTED)
+            return None
+        except TelegramNetworkError as exc:
+            log.warning(NO_TELEGRAM, extra={"error": type(exc).__name__, "retry_s": retry_s})
+            await asyncio.sleep(retry_s)
+
+
+async def llm_summary(api: Api) -> str:
+    """Для строки «бот запущен»: модель готова или что сделать."""
+    try:
+        status = await api.llm_status()
+    except ApiError:
+        return "состояние модели неизвестно: API не ответил"
+    if status.ok:
+        return f"модель {status.model} готова"
+    return status.hint or f"модель {status.model} недоступна"
 
 
 async def run(settings: BotSettings) -> None:
@@ -61,6 +97,9 @@ async def run(settings: BotSettings) -> None:
         log.warning("BOT_ALLOWED_IDS is empty: the bot answers anyone")
     background: list[asyncio.Task[None]] = []
     try:
+        me = await connect(bot)
+        if me is None:
+            return
         await bot.set_my_commands(COMMANDS)
         await consumer.ensure_group()
         await trainer.resume()
@@ -68,7 +107,10 @@ async def run(settings: BotSettings) -> None:
             asyncio.create_task(consumer.run()),
             asyncio.create_task(trainer.reconcile_loop()),
         ]
-        log.info("bot started", extra={"allowlist": len(settings.allowed_ids)})
+        log.info(
+            f"Бот запущен: @{me.username}; {await llm_summary(api)}",
+            extra={"allowlist": len(settings.allowed_ids)},
+        )
         await dp.start_polling(bot, handle_signals=True)
     finally:
         for task in background:
@@ -85,7 +127,7 @@ def main() -> None:
     secrets = [s.get_secret_value() for s in (settings.telegram_bot_token,) if s is not None]
     configure_logging(settings.log_level, secrets)
     if settings.telegram_bot_token is None:
-        log.warning("TELEGRAM_BOT_TOKEN не задан, бот не запущен")
+        log.warning(NO_TOKEN)
         sys.exit(0)
     asyncio.run(run(settings))
 

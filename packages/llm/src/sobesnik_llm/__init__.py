@@ -3,6 +3,7 @@
 from sobesnik_llm.base import (
     LLMError,
     LLMHealth,
+    LLMModelMissingError,
     LLMOutputError,
     LLMProvider,
     LLMRequest,
@@ -26,6 +27,7 @@ __all__ = [
     "LLMConfig",
     "LLMError",
     "LLMHealth",
+    "LLMModelMissingError",
     "LLMOutputError",
     "LLMProvider",
     "LLMRequest",

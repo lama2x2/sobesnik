@@ -17,6 +17,8 @@ class ASRConfig(BaseModel):
     provider: ASRProviderName = "faster_whisper"
     model: str = "small"
     model_dir: str | None = None
+    device: str = "cpu"
+    """cpu | cuda | auto (008 §4)."""
     compute_type: str = "int8"
     beam_size: int = 5
     cpu_threads: int = 0
@@ -28,6 +30,7 @@ def make_transcriber(config: ASRConfig) -> Transcriber:
             return FasterWhisperTranscriber(
                 config.model,
                 model_dir=config.model_dir,
+                device=config.device,
                 compute_type=config.compute_type,
                 beam_size=config.beam_size,
                 cpu_threads=config.cpu_threads,

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from sobesnik_core.limits import MAX_VACANCY_CHARS, MIN_VACANCY_CHARS
 from sobesnik_core.prompt import load_prompt
-from sobesnik_llm import FakeProvider, LLMError, LLMUnavailableError
+from sobesnik_llm import FakeProvider, LLMError, LLMModelMissingError, LLMUnavailableError
 
 HH_PAGE = """\
 <html><head><link rel="canonical" href="https://hh.ru/vacancy/1"></head><body>
@@ -224,6 +224,28 @@ async def test_llm_unavailable(
     assert len(llm.requests) == 1
 
 
+async def test_llm_model_missing_has_hint(
+    client: AsyncClient, llm: FakeProvider, user: dict[str, Any], replies: Any
+) -> None:
+    """Модель не скачана — свой код и подсказка, что выполнить (008 §7)."""
+    hint = (
+        "Модель qwen3.5:4b не скачана. На компьютере с Sobesnik выполните: ollama pull qwen3.5:4b"
+    )
+    llm.replies = [LLMModelMissingError("модель не найдена", hint=hint)]
+    response = await post(client, user, text=replies.vacancy_text)
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert (error["code"], error["hint"]) == ("llm_model_missing", hint)
+
+
+async def test_llm_unavailable_without_hint_omits_it(
+    client: AsyncClient, llm: FakeProvider, user: dict[str, Any], replies: Any
+) -> None:
+    llm.replies = [LLMUnavailableError("таймаут")]
+    response = await post(client, user, text=replies.vacancy_text)
+    assert "hint" not in response.json()["error"]
+
+
 async def test_llm_error(
     client: AsyncClient, llm: FakeProvider, user: dict[str, Any], replies: Any
 ) -> None:
@@ -400,3 +422,17 @@ async def test_patch_errors(
 async def test_patch_unknown_vacancy(client: AsyncClient) -> None:
     response = await client.patch(f"/vacancies/{uuid.uuid4()}", json={"level": "junior"})
     assert response.status_code == 404
+
+
+async def test_url_fake_ip_vpn_explained(
+    client: AsyncClient, llm: FakeProvider, user: dict[str, Any], web: Any
+) -> None:
+    """Fake-IP вне 198.18.0.0/15 — человеку объясняют про VPN и строку для .env (008 §7)."""
+    web.dns["hh.ru"] = ["240.0.0.7"]
+    response = await post(client, user, url="https://hh.ru/vacancy/1")
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "url_not_allowed"
+    assert "VPN" in error["message"]
+    assert "FETCH_ALLOW_NETWORKS=240.0.0.0/4" in error["message"]
+    assert llm.requests == []

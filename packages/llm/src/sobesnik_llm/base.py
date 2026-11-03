@@ -31,14 +31,25 @@ class LLMHealth(BaseModel):
     provider: str
     model: str
     detail: str | None = None
+    hint: str | None = None
+    """Что сделать человеку, по-русски и без технических подробностей (008 §7)."""
 
 
 class LLMError(Exception):
     """Провайдер вернул ошибку, которую не исправить повтором."""
 
+    def __init__(self, message: str, *, hint: str | None = None) -> None:
+        super().__init__(message)
+        self.hint = hint
+        """Что сделать человеку (008 §7); `None` — общего текста достаточно."""
+
 
 class LLMUnavailableError(LLMError):
     """LLM недоступна: нет соединения, таймаут, 5xx или модель не скачана."""
+
+
+class LLMModelMissingError(LLMUnavailableError):
+    """Модели нет у провайдера: в Ollama её не скачали, у облака неверное имя."""
 
 
 class LLMOutputError(LLMError):

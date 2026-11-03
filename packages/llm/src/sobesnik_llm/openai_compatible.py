@@ -9,8 +9,17 @@ from typing import Any
 
 import httpx
 
-from sobesnik_llm.base import LLMError, LLMHealth, LLMRequest, LLMResponse, LLMUnavailableError
+from sobesnik_llm.base import (
+    LLMError,
+    LLMHealth,
+    LLMModelMissingError,
+    LLMRequest,
+    LLMResponse,
+    LLMUnavailableError,
+)
 from sobesnik_llm.config import StructuredMode
+
+KEY_HINT = "Ключ API не подошёл. Проверьте LLM_API_KEY в .env."
 
 
 class OpenAICompatibleProvider:
@@ -101,9 +110,9 @@ class OpenAICompatibleProvider:
         try:
             response = await self._request("GET", "/models")
         except LLMUnavailableError as exc:
-            return self._health(ok=False, detail=str(exc))
+            return self._health(ok=False, detail=str(exc), hint=self.down_hint)
         if response.status_code in (401, 403):
-            return self._health(ok=False, detail="неверный ключ API")
+            return self._health(ok=False, detail="неверный ключ API", hint=KEY_HINT)
         if response.status_code == 404:
             return self._health(ok=True, detail="список моделей недоступен")
         if response.status_code != 200:
@@ -115,20 +124,33 @@ class OpenAICompatibleProvider:
         if not ids:
             return self._health(ok=True, detail="список моделей недоступен")
         if self.model not in ids and f"{self.model}:latest" not in ids:
-            return self._health(ok=False, detail=f"модель {self.model} не найдена")
+            return self._health(
+                ok=False, detail=f"модель {self.model} не найдена", hint=self.model_hint
+            )
         return self._health(ok=True)
 
-    def _health(self, *, ok: bool, detail: str | None = None) -> LLMHealth:
-        return LLMHealth(ok=ok, provider=self.name, model=self.model, detail=detail)
+    @property
+    def model_hint(self) -> str:
+        return f"Модель {self.model} не найдена у LLM_BASE_URL. Проверьте LLM_MODEL в .env."
+
+    @property
+    def down_hint(self) -> str:
+        return (
+            f"Модель по адресу {self._base_url} не отвечает. "
+            "Проверьте LLM_BASE_URL в .env и интернет."
+        )
+
+    def _health(self, *, ok: bool, detail: str | None = None, hint: str | None = None) -> LLMHealth:
+        return LLMHealth(ok=ok, provider=self.name, model=self.model, detail=detail, hint=hint)
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         status = response.status_code
         if status == 200:
             return
         if status in (401, 403):
-            raise LLMError("неверный ключ API")
+            raise LLMError("неверный ключ API", hint=KEY_HINT)
         if status == 404:
-            raise LLMUnavailableError(f"модель {self.model} не найдена")
+            raise LLMModelMissingError(f"модель {self.model} не найдена", hint=self.model_hint)
         if status == 429 or status >= 500:
             raise LLMUnavailableError(f"endpoint ответил {status}")
         raise LLMError(f"endpoint ответил {status}: {response.text[:200]}")
@@ -145,4 +167,4 @@ class OpenAICompatibleProvider:
         except httpx.TimeoutException as exc:
             raise LLMUnavailableError("таймаут запроса к LLM") from exc
         except httpx.TransportError as exc:
-            raise LLMUnavailableError(f"нет соединения с LLM: {exc}") from exc
+            raise LLMUnavailableError(f"нет соединения с LLM: {exc}", hint=self.down_hint) from exc

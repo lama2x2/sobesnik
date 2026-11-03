@@ -17,7 +17,7 @@ async def test_health(client: AsyncClient) -> None:
 async def test_health_llm_ok(client: AsyncClient) -> None:
     response = await client.get("/health/llm")
     assert response.status_code == 200
-    role = {"ok": True, "provider": "fake", "model": "fake-model", "detail": None}
+    role = {"ok": True, "provider": "fake", "model": "fake-model", "detail": None, "hint": None}
     assert response.json() == {"status": "ok", "roles": {"gen": role, "eval": role}}
 
 
@@ -28,6 +28,14 @@ async def test_health_llm_unavailable(client: AsyncClient, llm: FakeProvider) ->
     body = response.json()
     assert body["status"] == "unavailable"
     assert body["roles"]["gen"]["detail"]
+    assert body["roles"]["gen"]["hint"] is None
+
+
+async def test_health_llm_hint(client: AsyncClient, llm: FakeProvider) -> None:
+    llm.available, llm.hint = False, "Модель не скачана. Выполните: ollama pull fake-model"
+    response = await client.get("/health/llm")
+    assert response.status_code == 503
+    assert response.json()["roles"]["eval"]["hint"] == llm.hint
 
 
 async def health_with_eval(database_url: str, gen: FakeProvider, eval_: FakeProvider) -> Any:

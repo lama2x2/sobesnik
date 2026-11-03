@@ -16,12 +16,15 @@ class FakeTranscriber:
         language: str = "ru",
         duration_s: float = 10.0,
         error: Exception | None = None,
+        prefetch_error: Exception | None = None,
     ) -> None:
         self.model = model
         self.text = text
         self.language = language
         self.duration_s = duration_s
         self.error = error
+        self.prefetch_error = prefetch_error
+        self.prefetched = 0
         self.calls: list[tuple[int, str | None]] = []
         """(размер аудио, язык) каждого вызова."""
 
@@ -39,6 +42,11 @@ class FakeTranscriber:
             model=self.model,
             params={"language": language},
         )
+
+    async def prefetch(self) -> None:
+        self.prefetched += 1
+        if self.prefetch_error is not None:
+            raise self.prefetch_error
 
     async def aclose(self) -> None:
         return None
