@@ -32,7 +32,7 @@ from sobesnik_core.questions import (
     questions_json_schema,
 )
 from sobesnik_core.topics import topic_title
-from sobesnik_core.vacancy import VacancyProfile
+from sobesnik_core.vacancy import Difficulty, VacancyProfile, shift_level
 from sobesnik_llm import LLMProvider, LLMRequest, generate_structured
 
 log = logging.getLogger(__name__)
@@ -134,9 +134,12 @@ async def create_session(
     n: int,
     *,
     topics: Sequence[str] | None = None,
+    required_only: bool = False,
+    difficulty: Difficulty = "same",
     max_retries: int = 2,
 ) -> TrainingSession:
-    """Сессия по вакансии; `topics` — только требования с этими темами (007 §6.1)."""
+    """Сессия по вакансии; `topics` — только требования с этими темами (007 §6.1),
+    `required_only` — только обязательные, `difficulty` — сдвиг уровня в промпте (010 §5)."""
     vacancy = await get_vacancy(db, vacancy_id)
     requirements = vacancy.requirements
     if topics is not None:
@@ -147,6 +150,14 @@ async def create_session(
                 f"в вакансии нет тем: {', '.join(sorted(unknown))}",
             )
         requirements = [r for r in requirements if r.topic_slug in set(topics)]
+    if required_only:
+        requirements = [r for r in requirements if r.is_required]
+        if not requirements:
+            raise UnprocessableError(
+                "no_required_requirements",
+                "в вакансии нет обязательных требований"
+                + (" по выбранным темам" if topics is not None else ""),
+            )
     asked = await asked_questions(db, vacancy.id)
     asked_by_requirement = Counter(q.requirement_id for q in asked)
     profile = profile_of(vacancy)
@@ -154,7 +165,8 @@ async def create_session(
         update={
             "requirements": [
                 profile.requirements[vacancy.requirements.index(r)] for r in requirements
-            ]
+            ],
+            "level": shift_level(profile.level, difficulty),
         }
     )
     generated = await generate_questions(
@@ -170,6 +182,8 @@ async def create_session(
         user_id=vacancy.user_id,
         vacancy_id=vacancy.id,
         topics=sorted(set(topics)) if topics is not None else None,
+        required_only=required_only,
+        difficulty=difficulty,
     )
     for position, (slot, item) in enumerate(
         zip(generated.slots, generated.questions, strict=True), start=1
@@ -208,7 +222,14 @@ async def _save(
     await db.commit()
     log.info(
         "session created",
-        extra={"session_id": str(session.id), "mode": session.mode, "n": n, "attempts": attempts},
+        extra={
+            "session_id": str(session.id),
+            "mode": session.mode,
+            "n": n,
+            "attempts": attempts,
+            "required_only": session.required_only,
+            "difficulty": session.difficulty,
+        },
     )
     return session
 
@@ -245,9 +266,11 @@ async def create_repeat_session(
     n: int,
     thresholds: Thresholds,
     *,
+    difficulty: Difficulty = "same",
     max_retries: int = 2,
 ) -> TrainingSession:
-    """Повторение (PRG-3): по одному новому вопросу на слабую тему, тот же промпт (007 §6.2)."""
+    """Повторение (PRG-3): по одному новому вопросу на слабую тему, тот же промпт (007 §6.2);
+    `difficulty` сдвигает уровень последней вакансии (010 §5.2)."""
     if await db.get(User, user_id) is None:
         raise NotFoundError("user_not_found", "пользователь не найден")
     topics = repeat_topics(await user_progress(db, user_id), thresholds, n)
@@ -284,6 +307,7 @@ async def create_repeat_session(
             ],
         }
     )
+    profile = profile.model_copy(update={"level": shift_level(profile.level, difficulty)})
     generated = await generate_questions(
         llm,
         profile,
@@ -292,7 +316,9 @@ async def create_repeat_session(
         max_retries=max_retries,
     )
 
-    session = TrainingSession(user_id=user_id, vacancy_id=None, mode="repeat")
+    session = TrainingSession(
+        user_id=user_id, vacancy_id=None, mode="repeat", difficulty=difficulty
+    )
     # план ставит обязательные требования раньше, а повторение идёт от самых слабых тем
     ordered = sorted(
         zip(generated.slots, generated.questions, strict=True),

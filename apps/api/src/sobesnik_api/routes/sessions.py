@@ -45,6 +45,8 @@ async def session_out(db: AsyncSession, session: TrainingSession) -> SessionOut:
         vacancy_id=session.vacancy_id,
         mode=session.mode,
         topics=session.topics,
+        required_only=session.required_only,
+        difficulty=session.difficulty,
         status=session.status,
         questions=[
             SessionQuestionOut(
@@ -112,6 +114,7 @@ async def post_session(
             user_id,
             body.n,
             settings.progress_thresholds(),
+            difficulty=body.difficulty,
             max_retries=settings.llm_max_retries,
         )
     else:
@@ -123,6 +126,8 @@ async def post_session(
             body.vacancy_id,
             body.n,
             topics=body.topics,
+            required_only=body.required_only,
+            difficulty=body.difficulty,
             max_retries=settings.llm_max_retries,
         )
     return await session_out(db, session)

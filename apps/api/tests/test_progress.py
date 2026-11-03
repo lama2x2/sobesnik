@@ -229,6 +229,15 @@ async def test_repeat_session(
     assert "Повторение слабых тем" in prompt
     assert session["questions"][0]["text"] in prompt  # прежние вопросы — в «уже задавались»
 
+    assert "Уровень: middle" in prompt
+
+    harder = await new_session(
+        client, llm, {"mode": "repeat", "user_id": user["id"], "n": 5, "difficulty": "harder"}, n=2
+    )
+    assert harder["difficulty"] == "harder"
+    assert "Уровень: senior" in llm.requests[-1].prompt
+    await client.post(f"/sessions/{harder['id']}/finish")
+
     # ответ хороший: 33 и 100 → 66,5 — тема из «мало данных» уходит в «в порядке»
     await answer(client, deps, llm, replies, repeat, 2, HIGH)
     assert topic(await progress(client, user), "python.asyncio")["status"] == "ok"
@@ -243,6 +252,8 @@ async def test_repeat_errors(client: AsyncClient, user: dict[str, Any]) -> None:
     unknown = await client.post("/sessions", json={"mode": "repeat", "user_id": str(uuid.uuid4())})
     assert (unknown.status_code, unknown.json()["error"]["code"]) == (404, "user_not_found")
     assert (await client.post("/sessions", json={"mode": "repeat"})).status_code == 422
+    required = {"mode": "repeat", "user_id": user["id"], "required_only": True}
+    assert (await client.post("/sessions", json=required)).status_code == 422
     assert (await client.post("/sessions", json={"n": 3})).status_code == 422
     assert (await client.get(f"/users/{uuid.uuid4()}/progress")).status_code == 404
 

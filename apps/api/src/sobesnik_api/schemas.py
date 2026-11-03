@@ -21,7 +21,7 @@ from sobesnik_core.limits import (
     QUESTIONS_MIN,
 )
 from sobesnik_core.topics import topic_docs, topic_title
-from sobesnik_core.vacancy import Level
+from sobesnik_core.vacancy import Difficulty, Level
 
 MAX_HTML_CHARS = 3 * 1024 * 1024
 MAX_URL_CHARS = 2_000
@@ -159,6 +159,10 @@ class SessionCreate(BaseModel):
     user_id: uuid.UUID | None = None
     n: int = Field(default=QUESTIONS_DEFAULT, ge=QUESTIONS_MIN, le=QUESTIONS_MAX)
     topics: list[str] | None = Field(default=None, min_length=1, max_length=QUESTIONS_MAX)
+    required_only: bool = False
+    """Только обязательные требования вакансии (010 §5)."""
+    difficulty: Difficulty = "same"
+    """Сдвиг уровня в промпте генерации на шаг: проще / как в вакансии / сложнее."""
 
     @model_validator(mode="after")
     def by_mode(self) -> Self:
@@ -166,6 +170,8 @@ class SessionCreate(BaseModel):
             raise ValueError("для сессии по вакансии нужен vacancy_id")
         if self.mode == "repeat" and self.topics is not None:
             raise ValueError("для повторения topics не задаются")
+        if self.mode == "repeat" and self.required_only:
+            raise ValueError("для повторения required_only не задаётся")
         return self
 
 
@@ -196,6 +202,8 @@ class SessionOut(BaseModel):
     vacancy_id: uuid.UUID | None
     mode: str
     topics: list[str] | None = None
+    required_only: bool = False
+    difficulty: str = "same"
     status: str
     questions: list[SessionQuestionOut]
 

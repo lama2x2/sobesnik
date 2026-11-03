@@ -10,6 +10,17 @@ from sobesnik_core.topics import TopicCatalog
 Level = Literal["intern", "junior", "middle", "senior", "lead"]
 LEVELS: tuple[Level, ...] = ("intern", "junior", "middle", "senior", "lead")
 
+Difficulty = Literal["easier", "same", "harder"]
+DIFFICULTIES: tuple[Difficulty, ...] = ("easier", "same", "harder")
+
+
+def shift_level(level: Level, difficulty: Difficulty) -> Level:
+    """Сложность тренировки — сдвиг уровня на шаг, промпт тот же (010 §5.2); края не сдвигаются."""
+    step = {"easier": -1, "same": 0, "harder": 1}[difficulty]
+    index = min(max(LEVELS.index(level) + step, 0), len(LEVELS) - 1)
+    return LEVELS[index]
+
+
 TextKind = Literal["vacancy", "resume", "other"]
 
 

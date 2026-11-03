@@ -24,7 +24,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sobesnik_api.db.base import Base
-from sobesnik_core.vacancy import LEVELS
+from sobesnik_core.vacancy import DIFFICULTIES, LEVELS
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -184,6 +184,7 @@ class TrainingSession(Base):
     __table_args__ = (
         CheckConstraint(_in("mode", SESSION_MODES), name="mode"),
         CheckConstraint(_in("status", SESSION_STATUSES), name="status"),
+        CheckConstraint(_in("difficulty", DIFFICULTIES), name="difficulty"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -192,6 +193,12 @@ class TrainingSession(Base):
     mode: Mapped[str] = mapped_column(Text, default="vacancy")
     topics: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     """Темы, выбранные перед тренировкой (007 §6.1); `null` — все темы вакансии."""
+    required_only: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sql_text("false")
+    )
+    """Только обязательные требования вакансии (010 §5)."""
+    difficulty: Mapped[str] = mapped_column(Text, default="same", server_default="same")
+    """Сдвиг уровня в промпте генерации: `easier | same | harder` (010 §5.2)."""
     status: Mapped[str] = mapped_column(Text, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

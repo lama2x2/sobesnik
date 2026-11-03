@@ -4,6 +4,8 @@ from pydantic import ValidationError
 from sobesnik_core.topics import load_topics
 from sobesnik_core.vacancy import (
     LEVELS,
+    Difficulty,
+    Level,
     ParsedVacancy,
     VacancyProfile,
     check_parsed,
@@ -13,6 +15,7 @@ from sobesnik_core.vacancy import (
     parse_json_schema,
     repair_parsed,
     repaired_topics,
+    shift_level,
 )
 
 VALID = {
@@ -182,3 +185,17 @@ def test_normalize_profile() -> None:
         .text
         == "Транзакции"
     )
+
+
+@pytest.mark.parametrize(
+    ("level", "difficulty", "expected"),
+    [
+        ("middle", "easier", "junior"),
+        ("middle", "same", "middle"),
+        ("middle", "harder", "senior"),
+        ("intern", "easier", "intern"),
+        ("lead", "harder", "lead"),
+    ],
+)
+def test_shift_level(level: Level, difficulty: Difficulty, expected: Level) -> None:
+    assert shift_level(level, difficulty) == expected

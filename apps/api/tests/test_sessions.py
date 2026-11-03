@@ -195,3 +195,46 @@ async def test_llm_unavailable(
     response = await client.post("/sessions", json={"vacancy_id": vacancy["id"]})
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "llm_unavailable"
+
+
+async def test_required_only_and_difficulty(
+    client: AsyncClient, llm: FakeProvider, vacancy: dict[str, Any], replies: Any
+) -> None:
+    llm.replies = [replies.questions(4)]
+    body = {"vacancy_id": vacancy["id"], "n": 4, "required_only": True, "difficulty": "harder"}
+    response = await client.post("/sessions", json=body)
+
+    assert response.status_code == 201, response.text
+    session = response.json()
+    assert (session["required_only"], session["difficulty"]) == (True, "harder")
+    required = {r["id"] for r in vacancy["requirements"] if r["is_required"]}
+    assert {q["requirement_id"] for q in session["questions"]} == required
+    prompt = llm.requests[0].prompt
+    assert "Уровень: senior" in prompt and "Kubernetes" not in prompt
+    assert (await client.get(f"/sessions/{session['id']}")).json()["difficulty"] == "harder"
+    vacancy_now = (await client.get(f"/vacancies/{vacancy['id']}")).json()
+    assert vacancy_now["level"] == "middle"  # в вакансии уровень не меняется
+
+
+async def test_session_defaults_keep_old_behaviour(
+    client: AsyncClient, llm: FakeProvider, vacancy: dict[str, Any], replies: Any
+) -> None:
+    llm.replies = [replies.questions(3)]
+    session = (await client.post("/sessions", json={"vacancy_id": vacancy["id"], "n": 3})).json()
+    assert (session["required_only"], session["difficulty"]) == (False, "same")
+    assert "Уровень: middle" in llm.requests[0].prompt
+
+
+async def test_required_only_without_required(
+    client: AsyncClient, llm: FakeProvider, vacancy: dict[str, Any]
+) -> None:
+    body = {"vacancy_id": vacancy["id"], "topics": ["devops.kubernetes"], "required_only": True}
+    response = await client.post("/sessions", json=body)
+    assert (response.status_code, response.json()["error"]["code"]) == (
+        422,
+        "no_required_requirements",
+    )
+    assert "по выбранным темам" in response.json()["error"]["message"]
+    assert llm.requests == []
+    bad = await client.post("/sessions", json={"vacancy_id": vacancy["id"], "difficulty": "hard"})
+    assert bad.status_code == 422
