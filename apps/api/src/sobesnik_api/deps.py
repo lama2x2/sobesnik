@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sobesnik_api.asr_status import ASRStatus
 from sobesnik_api.llm import LLMRoles
 from sobesnik_api.queue import TaskQueue
 from sobesnik_api.settings import Settings
@@ -44,6 +45,11 @@ def get_storage(request: Request) -> AudioStorage:
     return storage
 
 
+def get_asr_status(request: Request) -> ASRStatus:
+    status: ASRStatus = request.app.state.asr_status
+    return status
+
+
 def get_settings(request: Request) -> Settings:
     settings: Settings = request.app.state.settings
     return settings
@@ -56,3 +62,4 @@ Fetcher = Annotated[PageFetcher, Depends(get_fetcher)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
 Queue = Annotated[TaskQueue, Depends(get_queue)]
 Storage = Annotated[AudioStorage, Depends(get_storage)]
+ASRStatusDep = Annotated[ASRStatus, Depends(get_asr_status)]

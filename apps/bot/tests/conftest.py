@@ -160,6 +160,8 @@ class FakeApi:
         self.session: Session | None = None
         self.answers: dict[uuid.UUID, Answer] = {}
         self.voice_data: list[tuple[bytes, str, str]] = []
+        self.asr_ready: bool | None = None
+        """Что API скажет про модель распознавания у голосового (011 §4)."""
         self.closed = False
         self.gate: asyncio.Event | None = None
         """Если задан, разбор вакансии ждёт его — как долгий вызов модели."""
@@ -314,9 +316,10 @@ class FakeApi:
             kind=kind,
             status="received",
             error=None,
+            asr_ready=self.asr_ready if kind == "voice" else None,
         )
         self.answers[answer.id] = answer
-        return Accepted(answer_id=answer.id, status="received")
+        return Accepted(answer_id=answer.id, status="received", asr_ready=answer.asr_ready)
 
     async def answer_text(
         self, session_id: uuid.UUID, question_id: uuid.UUID, text: str
@@ -368,9 +371,15 @@ class FakeApi:
     # --- что делает воркер
 
     def set_status(
-        self, answer_id: uuid.UUID, status: str, *, error: str | None = None, transcript: str = ""
+        self,
+        answer_id: uuid.UUID,
+        status: str,
+        *,
+        error: str | None = None,
+        transcript: str = "",
+        asr_ready: bool | None = None,
     ) -> None:
-        update: dict[str, Any] = {"status": status, "error": error}
+        update: dict[str, Any] = {"status": status, "error": error, "asr_ready": asr_ready}
         if transcript:
             update["transcript"] = Transcript(text=transcript)
         self.answers[answer_id] = self.answers[answer_id].model_copy(update=update)

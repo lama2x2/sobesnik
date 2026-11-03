@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI
 
+from sobesnik_api.asr_status import ASRStatus, RedisASRStatus
 from sobesnik_api.auth import get_caller
 from sobesnik_api.db.session import make_engine, make_sessionmaker
 from sobesnik_api.errors import install_error_handlers
@@ -31,9 +32,10 @@ def create_app(
     fetcher: PageFetcher | None = None,
     queue: TaskQueue | None = None,
     storage: AudioStorage | None = None,
+    asr_status: ASRStatus | None = None,
 ) -> FastAPI:
-    """`llm`, `llm_eval`, `fetcher`, `queue` и `storage` передают тесты; без них всё собирается
-    по env.
+    """`llm`, `llm_eval`, `fetcher`, `queue`, `storage` и `asr_status` передают тесты; без них
+    всё собирается по env.
 
     `llm` без `llm_eval` обслуживает обе роли.
     """
@@ -55,6 +57,7 @@ def create_app(
         )
         app.state.queue = queue or ArqQueue(settings.redis_url)
         app.state.storage = storage or settings.audio_storage()
+        app.state.asr_status = asr_status or RedisASRStatus.from_url(settings.redis_url)
         try:
             await app.state.storage.ensure_bucket()
         except StorageError as exc:  # приём голоса ответит 503, остальное работает
@@ -65,6 +68,7 @@ def create_app(
         yield
         health_check.cancel()
         await app.state.queue.aclose()
+        await app.state.asr_status.aclose()
         await app.state.fetcher.aclose()
         await roles.aclose()
         await engine.dispose()

@@ -153,6 +153,7 @@ class Answer(_Model):
     evaluation: Evaluation | None = None
     docs: list[Doc] = []
     has_review: bool = False
+    asr_ready: bool | None = None
 
     @property
     def final(self) -> bool:

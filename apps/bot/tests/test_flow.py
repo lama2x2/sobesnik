@@ -213,6 +213,26 @@ async def test_voice_answer(user: Chat_, api: FakeApi, tg: FakeSession, trainer:
     assert tg.last_text().startswith("<b>Вопрос 2 из 3</b>")
 
 
+async def test_first_voice_warns_model_is_downloading(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer
+) -> None:
+    """Whisper ещё качается — статус честно говорит, что это надолго (011 §4)."""
+    await in_training(user, api, tg)
+    api.asr_ready = False
+    tg.files["voice-1"] = b"OggS-voice"
+    await user.voice()
+    answer = api.last_answer()
+    assert tg.of(SendMessage)[-1].text == f"✅ Принято. {render.ASR_FIRST_TIME}"
+
+    api.set_status(answer.id, "transcribing", asr_ready=False)
+    await trainer.on_event(answer.id, "transcribing")
+    assert not tg.of(EditMessageText)  # текст тот же — не редактируем
+
+    api.set_status(answer.id, "transcribing", asr_ready=True)  # модель докачалась
+    await trainer.sync(answer.id)  # событий нет — сверка по таймеру
+    assert tg.of(EditMessageText)[-1].text == "✅ Принято. 🎧 Распознаю речь…"
+
+
 async def test_video_note_answer(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
     """Кружочек уходит в API как mp4 — звук отделит API."""
     await in_training(user, api, tg)

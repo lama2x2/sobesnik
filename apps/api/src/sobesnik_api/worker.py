@@ -20,6 +20,7 @@ from arq.worker import func
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from sobesnik_api.asr_status import ASRStatus, MemoryASRStatus, RedisASRStatus
 from sobesnik_api.db.models import Answer, EvalRun, Transcript
 from sobesnik_api.db.session import make_engine, make_sessionmaker
 from sobesnik_api.events import AnswerEvents, NullAnswerEvents, RedisAnswerEvents
@@ -74,6 +75,8 @@ class WorkerDeps:
     """Чтобы после распознавания поставить оценку."""
     events: AnswerEvents = field(default_factory=NullAnswerEvents)
     """События смены статуса ответа для бота (006 §6)."""
+    asr_status: ASRStatus = field(default_factory=MemoryASRStatus)
+    """Готова ли модель распознавания — для подсказки «первый раз это пара минут» (011 §4)."""
 
 
 def retry_delay(job_try: int) -> int:
@@ -157,6 +160,7 @@ async def process_transcription(deps: WorkerDeps, answer_id: uuid.UUID, job_try:
             )
             raise Retry(defer=retry_delay(job_try)) from None
 
+        await deps.asr_status.set(result.model, "ready")  # модель могла докачаться без prefetch
         text = result.text.strip()
         db.add(
             Transcript(
@@ -296,18 +300,24 @@ def make_run_llm(settings: Settings, shared: LLMProvider) -> RunLLM:
     return run_llm
 
 
-async def prefetch_asr(transcriber: Transcriber) -> None:
+async def prefetch_asr(transcriber: Transcriber, status: ASRStatus) -> None:
     """Докачивает модель whisper при старте, чтобы первое голосовое не ждало загрузку (008 §7).
-    Сбой не мешает воркеру: текстовые ответы оцениваются, голос попробует скачать модель сам."""
+    Сбой не мешает воркеру: текстовые ответы оцениваются, голос попробует скачать модель сам.
+
+    Состояние — в `status`: пока не `ready`, бот и веб пишут «первый раз — пара минут» (011 §4)."""
+    await status.set(transcriber.model, "downloading")
     try:
         await transcriber.prefetch()
     except ASRError as exc:
+        await status.set(transcriber.model, "failed")
         log.warning(
             "Модель распознавания речи не скачалась: голосовые ответы пока не работают, "
             "текстом можно. Проверьте интернет или VPN и перезапустите: "
             "docker compose restart worker",
             extra={"asr_model": transcriber.model, "error": str(exc)},
         )
+        return
+    await status.set(transcriber.model, "ready")
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -327,13 +337,15 @@ async def startup(ctx: dict[str, Any]) -> None:
         storage=storage,
         queue=queue,
         events=RedisAnswerEvents.from_url(settings.redis_url, settings.answer_events_stream),
+        asr_status=RedisASRStatus.from_url(settings.redis_url),
     )
     try:
         await storage.ensure_bucket()
     except StorageError as exc:
         log.warning("audio bucket not ready", extra={"error": type(exc).__name__})
     await recover(ctx["deps"], queue)
-    ctx["prefetch"] = asyncio.create_task(prefetch_asr(ctx["deps"].transcriber))
+    deps = ctx["deps"]
+    ctx["prefetch"] = asyncio.create_task(prefetch_asr(deps.transcriber, deps.asr_status))
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
@@ -341,6 +353,7 @@ async def shutdown(ctx: dict[str, Any]) -> None:
     await ctx["deps"].llm.aclose()
     await ctx["deps"].transcriber.aclose()
     await ctx["deps"].events.aclose()
+    await ctx["deps"].asr_status.aclose()
     await ctx["engine"].dispose()
 
 

@@ -401,10 +401,21 @@ def doubts_block(doubts: list[str]) -> str:
     return "<b>Возможно, распознано неверно — проверьте:</b>\n" + _quote(body)
 
 
-def status_text(kind: str, status: str, answer: Answer | None = None, *, slow: bool = False) -> str:
-    """Статусное сообщение ответа в работе (BOT-6, 006 §4.5)."""
+ASR_FIRST_TIME = "🎧 Готовлю распознавание — первый раз это пара минут, потом быстро…"
+
+
+def status_text(
+    kind: str,
+    status: str,
+    answer: Answer | None = None,
+    *,
+    slow: bool = False,
+    asr_ready: bool = True,
+) -> str:
+    """Статусное сообщение ответа в работе (BOT-6, 006 §4.5); `asr_ready=False` — модель
+    распознавания ещё качается (011 §4)."""
     if kind == "voice" and status in ("received", "transcribing"):
-        lines = ["✅ Принято. 🎧 Распознаю речь…"]
+        lines = [f"✅ Принято. {'🎧 Распознаю речь…' if asr_ready else ASR_FIRST_TIME}"]
     else:
         lines = ["✅ Принято. 🧠 Оцениваю ответ…"]
     if slow:

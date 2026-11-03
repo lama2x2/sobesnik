@@ -4,9 +4,10 @@ from fastapi import APIRouter, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sobesnik_api.asr_status import ASRStatus, asr_ready
 from sobesnik_api.auth import Caller, CallerDep
 from sobesnik_api.db.models import Answer, AnswerReview, Audio, Evaluation, Transcript
-from sobesnik_api.deps import DB, LLM, AppSettings, Queue, Storage
+from sobesnik_api.deps import DB, LLM, AppSettings, ASRStatusDep, Queue, Storage
 from sobesnik_api.errors import NotFoundError, PayloadTooLargeError
 from sobesnik_api.routes.sessions import owned_session
 from sobesnik_api.schemas import (
@@ -109,9 +110,23 @@ def transcript_out(transcript: Transcript | None) -> TranscriptOut | None:
     )
 
 
-async def answer_out(db: AsyncSession, answer: Answer, evaluation: Evaluation | None) -> AnswerOut:
-    """Транскрипт — тот, что оценён «боевой» оценкой, а пока её нет — последний распознанный."""
+WAITING_ASR = ("received", "transcribing")
+
+
+async def answer_out(
+    db: AsyncSession,
+    answer: Answer,
+    evaluation: Evaluation | None,
+    asr: tuple[ASRStatus, str] | None = None,
+) -> AnswerOut:
+    """Транскрипт — тот, что оценён «боевой» оценкой, а пока её нет — последний распознанный.
+
+    `asr` — статус и модель распознавания: голосовому, которое ждёт распознавания, отдаётся
+    `asr_ready` (011 §4)."""
     audio = transcript = None
+    ready = None
+    if answer.kind == "voice" and answer.status in WAITING_ASR and asr is not None:
+        ready = await asr_ready(*asr)
     if answer.kind == "voice":
         audio = await answer_audio(db, answer.id)
         if evaluation is not None and evaluation.transcript_id is not None:
@@ -137,10 +152,15 @@ async def answer_out(db: AsyncSession, answer: Answer, evaluation: Evaluation | 
             select(AnswerReview.id).where(AnswerReview.evaluation_id == evaluation.id)
         )
         is not None,
+        asr_ready=ready,
     )
 
 
-@router.post("/sessions/{session_id}/questions/{question_id}/answer", status_code=202)
+@router.post(
+    "/sessions/{session_id}/questions/{question_id}/answer",
+    status_code=202,
+    response_model_exclude_none=True,
+)
 async def post_answer(
     session_id: uuid.UUID,
     question_id: uuid.UUID,
@@ -177,6 +197,7 @@ async def post_voice_answer(
     queue: Queue,
     storage: Storage,
     settings: AppSettings,
+    asr_status: ASRStatusDep,
     caller: CallerDep,
 ) -> AnswerAccepted:
     await owned_session(db, caller, session_id)
@@ -187,7 +208,11 @@ async def post_voice_answer(
     )
     data = await _read_limited(file, limits.max_bytes)
     answer = await submit_voice_answer(db, queue, storage, session_id, question_id, data, limits)
-    return AnswerAccepted(answer_id=answer.id, status=answer.status)
+    return AnswerAccepted(
+        answer_id=answer.id,
+        status=answer.status,
+        asr_ready=await asr_ready(asr_status, settings.asr_model),
+    )
 
 
 async def owned_answer(db: AsyncSession, caller: Caller, answer_id: uuid.UUID) -> Answer:
@@ -199,9 +224,16 @@ async def owned_answer(db: AsyncSession, caller: Caller, answer_id: uuid.UUID) -
 
 
 @router.get("/answers/{answer_id}")
-async def read_answer(answer_id: uuid.UUID, db: DB, caller: CallerDep) -> AnswerOut:
+async def read_answer(
+    answer_id: uuid.UUID,
+    db: DB,
+    settings: AppSettings,
+    asr_status: ASRStatusDep,
+    caller: CallerDep,
+) -> AnswerOut:
     answer = await owned_answer(db, caller, answer_id)
-    return await answer_out(db, answer, await live_evaluation(db, answer.id))
+    evaluation = await live_evaluation(db, answer.id)
+    return await answer_out(db, answer, evaluation, (asr_status, settings.asr_model))
 
 
 def review_out(answer: Answer, result: ReviewResult) -> ReviewOut:

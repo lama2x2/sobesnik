@@ -136,9 +136,12 @@ def topic_score(topic: TopicProgress) -> str:
     return f"≈ {approx(topic.avg_last3)}" if topic.avg_last3 is not None else "—"
 
 
-def status_line(kind: str, status: str) -> str:
-    """Этап обработки ответа (BOT-6): голос начинается с распознавания, текст — с оценки."""
+def status_line(kind: str, status: str, asr_ready: bool | None = None) -> str:
+    """Этап обработки ответа (BOT-6): голос начинается с распознавания, текст — с оценки;
+    `asr_ready=False` — модель распознавания ещё качается (011 §4)."""
     if kind == "voice" and status in ("received", "transcribing"):
+        if asr_ready is False:
+            return "🎧 Готовлю распознавание — первый раз это пара минут, потом быстро…"
         return "🎧 Распознаю речь…"
     return "🧠 Оцениваю ответ…"
 

@@ -21,6 +21,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from sobesnik_api.app import create_app
+from sobesnik_api.asr_status import MemoryASRStatus
 from sobesnik_api.db.base import Base
 from sobesnik_api.db.models import EvalRun
 from sobesnik_api.db.session import make_sessionmaker
@@ -311,6 +312,11 @@ def transcriber() -> FakeTranscriber:
 
 
 @pytest.fixture
+def asr_status() -> MemoryASRStatus:
+    return MemoryASRStatus()
+
+
+@pytest.fixture
 def deps(
     engine: AsyncEngine,
     llm: FakeProvider,
@@ -318,6 +324,7 @@ def deps(
     transcriber: FakeTranscriber,
     storage: MemoryStorage,
     queue: FakeQueue,
+    asr_status: MemoryASRStatus,
 ) -> WorkerDeps:
     return WorkerDeps(
         settings=Settings(eval_max_tries=3, asr_max_tries=3),
@@ -327,6 +334,7 @@ def deps(
         transcriber=transcriber,
         storage=storage,
         queue=queue,
+        asr_status=asr_status,
     )
 
 
@@ -343,6 +351,7 @@ async def app(
     web: FakeWeb,
     queue: FakeQueue,
     storage: MemoryStorage,
+    asr_status: MemoryASRStatus,
 ) -> AsyncIterator[FastAPI]:
     app = create_app(
         Settings(database_url=database_url),
@@ -350,6 +359,7 @@ async def app(
         fetcher=web.fetcher(),
         queue=queue,
         storage=storage,
+        asr_status=asr_status,
     )
     async with app.router.lifespan_context(app):
         yield app

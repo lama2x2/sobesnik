@@ -454,6 +454,23 @@ async def test_voice_goes_to_api_unchanged(browser: AsyncClient, fake: Any) -> N
     assert "Распознаю речь" in text_of(response.text)
 
 
+async def test_first_voice_warns_model_is_downloading(browser: AsyncClient, fake: Any) -> None:
+    """Whisper ещё качается — статус говорит, что первый раз это надолго (011 §4)."""
+    q = fake.session.questions[0]
+    await browser.post(
+        f"/sessions/{fake.session.id}/questions/{q.id}/voice",
+        data={"position": "1", "total": "2"},
+        files={"file": ("voice.webm", b"x", "audio/webm")},
+    )
+    answer = fake.answers[q.answer.id]
+    answer.asr_ready = False
+    page = text_of((await browser.get(f"/answers/{answer.id}/status?position=1&total=2")).text)
+    assert "первый раз это пара минут" in page
+    answer.asr_ready = True
+    page = text_of((await browser.get(f"/answers/{answer.id}/status?position=1&total=2")).text)
+    assert "Распознаю речь" in page and "пара минут" not in page
+
+
 async def test_voice_transcript_while_evaluating(browser: AsyncClient, fake: Any) -> None:
     q = fake.session.questions[0]
     await browser.post(

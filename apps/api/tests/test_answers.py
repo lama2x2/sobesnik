@@ -10,6 +10,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from sobesnik_api.asr_status import ASRState, MemoryASRStatus, asr_ready
 from sobesnik_api.worker import WorkerDeps, prefetch_asr, process_answer, recover
 from sobesnik_asr import ASRError, FakeTranscriber
 from sobesnik_core.limits import ANSWER_MAX_CHARS
@@ -223,17 +224,33 @@ async def test_missing_model_fails_with_own_code(
     assert (body["status"], body["error"]) == ("failed", "llm_model_missing")
 
 
+class RecordingASRStatus(MemoryASRStatus):
+    def __init__(self) -> None:
+        super().__init__()
+        self.history: list[str] = []
+
+    async def set(self, model: str, state: ASRState) -> None:
+        self.history.append(state)
+        await super().set(model, state)
+
+
 async def test_prefetch_asr_downloads_model() -> None:
-    transcriber = FakeTranscriber()
-    await prefetch_asr(transcriber)
+    transcriber = FakeTranscriber(model="small")
+    status = RecordingASRStatus()
+    await prefetch_asr(transcriber, status)
     assert transcriber.prefetched == 1
+    assert status.history == ["downloading", "ready"]
+    assert await asr_ready(status, "small")
 
 
 async def test_prefetch_asr_failure_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> None:
-    transcriber = FakeTranscriber(prefetch_error=ASRError("нет сети"))
+    transcriber = FakeTranscriber(prefetch_error=ASRError("нет сети"), model="small")
+    status = RecordingASRStatus()
     with caplog.at_level(logging.WARNING):
-        await prefetch_asr(transcriber)
+        await prefetch_asr(transcriber, status)
     assert "голосовые ответы пока не работают" in caplog.text
+    assert status.history == ["downloading", "failed"]
+    assert not await asr_ready(status, "small")
 
 
 async def test_evaluated_answer_is_not_evaluated_again(

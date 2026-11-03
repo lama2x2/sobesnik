@@ -217,6 +217,8 @@ class AnswerCreate(BaseModel):
 class AnswerAccepted(BaseModel):
     answer_id: uuid.UUID
     status: str
+    asr_ready: bool | None = None
+    """Только у голосового: модель распознавания уже готова (011 §4)."""
 
 
 class CriterionScoreOut(BaseModel):
@@ -276,6 +278,8 @@ class AnswerOut(BaseModel):
     """До двух ссылок «что почитать» по теме вопроса (007 §7.2)."""
     has_review: bool = False
     """Подробный разбор последней оценки уже готов (010 §4)."""
+    asr_ready: bool | None = None
+    """Голосовое ждёт распознавания: готова ли модель (011 §4). В остальных случаях `null`."""
 
 
 class ReviewPointOut(BaseModel):

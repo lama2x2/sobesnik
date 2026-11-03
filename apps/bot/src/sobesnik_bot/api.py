@@ -69,6 +69,7 @@ class Session(_Model):
 class Accepted(_Model):
     answer_id: uuid.UUID
     status: str
+    asr_ready: bool | None = None
 
 
 class CriterionScore(_Model):
@@ -102,6 +103,7 @@ class Answer(_Model):
     evaluation: Evaluation | None = None
     topic: str | None = None
     docs: list["Doc"] = []
+    asr_ready: bool | None = None
 
 
 class Doc(_Model):

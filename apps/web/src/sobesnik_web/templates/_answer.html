@@ -5,7 +5,7 @@
   hx-trigger="load delay:2s" hx-swap="outerHTML"
   {% endif %}>
 {% if not answer.final %}
-  <p class="status">✅ Принято. {{ status_line(answer.kind, answer.status) }}
+  <p class="status">✅ Принято. {{ status_line(answer.kind, answer.status, answer.asr_ready) }}
     <span class="muted">{{ elapsed }} с</span></p>
   {% if slow %}
   <p class="muted">Модель думает дольше обычного, ответ сохранён — можно закрыть страницу и вернуться позже.</p>

@@ -15,6 +15,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from sobesnik_api.asr_status import MemoryASRStatus
 from sobesnik_api.db.models import Audio, Evaluation, Transcript
 from sobesnik_api.errors import AppError
 from sobesnik_api.export import COMMON, TAIL, ExportFilter, select_rows, write_csv
@@ -136,6 +137,37 @@ async def test_submit_voice(
         timedelta(days=30), abs=timedelta(minutes=1)
     )
     assert audio.deleted_at is None
+
+
+async def test_voice_tells_whether_asr_model_is_ready(
+    client: AsyncClient,
+    session: dict[str, Any],
+    deps: WorkerDeps,
+    asr_status: MemoryASRStatus,
+) -> None:
+    """Модель ещё качается — бот и веб пишут «первый раз это пара минут» (011 §4)."""
+    response = await send_voice(client, session)
+    assert response.json()["asr_ready"] is False
+    answer_id = response.json()["answer_id"]
+    assert (await client.get(f"/answers/{answer_id}")).json()["asr_ready"] is False
+
+    await process_transcription(deps, uuid.UUID(answer_id))  # распознал — значит, готова
+    assert asr_status.states == {"small": "ready"}
+    assert (await client.get(f"/answers/{answer_id}")).json()["asr_ready"] is None
+
+    response = await send_voice(client, session, position=2)
+    assert response.json()["asr_ready"] is True
+    assert (await client.get(f"/answers/{response.json()['answer_id']}")).json()["asr_ready"]
+
+
+async def test_text_answer_has_no_asr_ready(client: AsyncClient, session: dict[str, Any]) -> None:
+    qid = session["questions"][0]["id"]
+    response = await client.post(
+        f"/sessions/{session['id']}/questions/{qid}/answer", json={"text": "Ответ текстом."}
+    )
+    assert "asr_ready" not in response.json()
+    answer = (await client.get(f"/answers/{response.json()['answer_id']}")).json()
+    assert answer["asr_ready"] is None
 
 
 async def test_submit_video_note_keeps_audio_only(

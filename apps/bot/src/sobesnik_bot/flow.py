@@ -430,7 +430,10 @@ class Trainer:
 
         `started` — `time.monotonic()` при получении сообщения: `ack_ms` в логе — замер 000 §5."""
         assert state.session_id is not None and state.question_id is not None
-        message = await self._send(chat_id, render.status_text(kind, "received"))
+        asr_ready = accepted.asr_ready is not False
+        message = await self._send(
+            chat_id, render.status_text(kind, "received", asr_ready=asr_ready)
+        )
         ack_ms = round((time.monotonic() - started) * 1000)
         pending = Pending(
             answer_id=accepted.answer_id,
@@ -441,6 +444,7 @@ class Trainer:
             session_id=state.session_id,
             question_id=state.question_id,
             accepted_at=self.now(),
+            asr_ready=asr_ready,
         )
         await self.store.add_pending(pending)
         state.mode = "waiting"
@@ -671,15 +675,26 @@ class Trainer:
                 await self._result(pending, answer)
                 return
             slow = pending.slow_noted or self.now() - pending.accepted_at >= self.slow_after_s
-            if answer.status == pending.last_status and slow == pending.slow_noted:
+            asr_ready = answer.asr_ready is not False
+            if (answer.status, slow, asr_ready) == (
+                pending.last_status,
+                pending.slow_noted,
+                pending.asr_ready,
+            ):
                 return
             shown = answer if answer.status == "evaluating" else None
-            text = render.status_text(pending.kind, answer.status, shown, slow=slow)
+            text = render.status_text(
+                pending.kind, answer.status, shown, slow=slow, asr_ready=asr_ready
+            )
             if text != render.status_text(
-                pending.kind, pending.last_status, slow=pending.slow_noted
+                pending.kind,
+                pending.last_status,
+                slow=pending.slow_noted,
+                asr_ready=pending.asr_ready,
             ):
                 await self._edit(pending.chat_id, pending.message_id, text)
             pending.last_status, pending.slow_noted = answer.status, slow
+            pending.asr_ready = asr_ready
             await self.store.save_pending(pending)
         if answer_id not in self._typing:
             self._start_typing(pending)

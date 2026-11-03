@@ -53,6 +53,8 @@ class Pending:
     accepted_at: float
     last_status: str = "received"
     slow_noted: bool = False
+    asr_ready: bool = True
+    """Модель распознавания была готова при последнем статусе (011 §4)."""
 
 
 def _dump(obj: Any) -> str:
