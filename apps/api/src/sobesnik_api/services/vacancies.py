@@ -51,6 +51,8 @@ class ParseResult:
     prompt_version: str
     repaired_topics: int = 0
     """Сколько выдуманных тем заменено на `<область>.general`."""
+    latency_ms: int | None = None
+    """Время модели на все попытки разбора (011 §7)."""
 
 
 async def resolve_text(body: VacancyCreate, fetcher: PageFetcher) -> VacancyText:
@@ -125,6 +127,7 @@ async def parse_vacancy(llm: LLMProvider, text: str, *, max_retries: int = 2) ->
         profile=normalize_profile(parsed.profile, catalog),
         prompt_version=template.version,
         repaired_topics=repaired,
+        latency_ms=sum(a.latency_ms for a in result.attempts),
     )
 
 
@@ -151,6 +154,7 @@ async def create_vacancy(
         stack=profile.stack,
         parser_model=llm.model,
         prompt_version=parsed.prompt_version,
+        latency_ms=parsed.latency_ms,
         requirements=[
             Requirement(position=i, text=r.text, is_required=r.is_required, topic_slug=r.topic)
             for i, r in enumerate(profile.requirements)

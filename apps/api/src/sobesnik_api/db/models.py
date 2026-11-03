@@ -91,6 +91,8 @@ class Vacancy(Base):
     stack: Mapped[list[str]] = mapped_column(ARRAY(Text))
     parser_model: Mapped[str] = mapped_column(Text)
     prompt_version: Mapped[str] = mapped_column(Text)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    """Время модели на разбор, все попытки (011 §7); у вакансий до спринта 11 — пусто."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     requirements: Mapped[list["Requirement"]] = relationship(
@@ -203,6 +205,8 @@ class TrainingSession(Base):
     difficulty: Mapped[str] = mapped_column(Text, default="same", server_default="same")
     """Сдвиг уровня в промпте генерации: `easier | same | harder` (010 §5.2)."""
     status: Mapped[str] = mapped_column(Text, default="active")
+    gen_latency_ms: Mapped[int | None] = mapped_column(Integer)
+    """Время модели на генерацию вопросов, все попытки (011 §7); до спринта 11 — пусто."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

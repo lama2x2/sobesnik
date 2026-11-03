@@ -74,6 +74,8 @@ class GeneratedSession:
     """Вопрос i отвечает слоту плана i."""
     prompt_version: str
     attempts: int
+    latency_ms: int = 0
+    """Время модели на все попытки генерации (011 §7)."""
 
 
 async def generate_questions(
@@ -125,6 +127,7 @@ async def generate_questions(
         questions=result.value.questions[:n],
         prompt_version=template.version,
         attempts=len(result.attempts),
+        latency_ms=sum(a.latency_ms for a in result.attempts),
     )
 
 
@@ -196,6 +199,7 @@ async def create_session(
                 question=_question(llm, generated, item, requirement.id, requirement.topic_slug),
             )
         )
+    session.gen_latency_ms = generated.latency_ms
     return await _save(db, session, n, generated.attempts)
 
 
@@ -228,6 +232,7 @@ async def _save(
             "mode": session.mode,
             "n": n,
             "attempts": attempts,
+            "latency_ms": session.gen_latency_ms,
             "required_only": session.required_only,
             "difficulty": session.difficulty,
         },
@@ -346,6 +351,7 @@ async def create_repeat_session(
                 ),
             )
         )
+    session.gen_latency_ms = generated.latency_ms
     return await _save(db, session, len(slots), generated.attempts)
 
 

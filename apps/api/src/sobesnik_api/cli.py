@@ -4,6 +4,7 @@
     docker compose run --rm tools uv run sobesnik-cli eval-run create --name s --model qwen3:1.7b
     docker compose run --rm tools uv run sobesnik-cli transcript add ANSWER_ID --file ref.txt
     docker compose run --rm tools uv run sobesnik-cli export --run RUN_ID -o research/data/x.csv
+    docker compose run --rm tools uv run sobesnik-cli stats --since 2026-11-01
 
 Нужны Postgres и Redis (импорт голоса — ещё хранилище); LLM не нужна — оценивает воркер.
 """
@@ -26,6 +27,7 @@ from sobesnik_api.queue import ArqQueue, TaskQueue
 from sobesnik_api.services.datasets import get_dataset, import_dataset, list_datasets
 from sobesnik_api.services.eval_runs import RunFilter, create_run, get_run, restart_run
 from sobesnik_api.services.progress import rebuild as rebuild_progress
+from sobesnik_api.services.stats import format_table, latency_stats
 from sobesnik_api.services.voice import AudioLimits, add_reference_transcript
 from sobesnik_api.settings import Settings
 from sobesnik_core.dataset import DatasetFormatError, parse_jsonl
@@ -95,6 +97,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rebuild_cmd = progress.add_parser("rebuild", help="пересчитать прогресс из оценок (007 §4)")
     rebuild_cmd.add_argument("--user", type=uuid.UUID)
+
+    stats = commands.add_parser("stats", help="время операций по БД: медиана, p90 (011 §7)")
+    stats.add_argument("--since", type=date.fromisoformat, help="YYYY-MM-DD")
     return parser
 
 
@@ -184,6 +189,10 @@ async def run_command(
 
     if args.command == "progress":
         print(f"строк прогресса: {await rebuild_progress(db, args.user)}")
+        return 0
+
+    if args.command == "stats":
+        print(format_table(await latency_stats(db, args.since)))
         return 0
 
     if args.action == "create":
