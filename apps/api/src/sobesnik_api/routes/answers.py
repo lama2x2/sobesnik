@@ -32,6 +32,7 @@ from sobesnik_api.services.voice import (
     latest_transcript,
     submit_voice_answer,
 )
+from sobesnik_core.asr_doubts import filter_doubts
 from sobesnik_core.rubric import Rubric, load_rubric
 from sobesnik_core.versioned import version_number
 
@@ -74,7 +75,8 @@ def evaluation_out(evaluation: Evaluation) -> EvaluationOut:
         scores=scores,
         missed_points=evaluation.feedback.get("missed_points", []),
         advice=evaluation.feedback.get("advice", ""),
-        asr_doubts=evaluation.feedback.get("asr_doubts", []),
+        # шумные сомнения убираются при выдаче, в оценке и CSV остаётся всё (010 §6.3)
+        asr_doubts=filter_doubts(evaluation.feedback.get("asr_doubts", [])),
         rubric_version=evaluation.rubric_version,
         prompt_version=evaluation.prompt_version,
         model=evaluation.model,

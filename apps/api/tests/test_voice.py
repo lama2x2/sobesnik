@@ -240,7 +240,8 @@ async def test_transcribe_and_evaluate(
     assert transcript.avg_logprob == -0.2
     assert transcript.params == {"language": "ru"}
 
-    doubts = ["распознано «кэш» — возможно, сказано «кеш»"]
+    useful = "распознано «рак» — возможно, сказано «RAG»"
+    doubts = [useful, "распознано «закрыт доступ» — возможно, сказано «скрыт от глаз»"]
     llm.replies = [eval_with_doubts(replies, doubts)]
     await process_answer(deps, answer_id)
 
@@ -261,7 +262,7 @@ async def test_transcribe_and_evaluate(
     assert body["transcript"]["kind"] == "asr"
     assert body["audio"]["mime"] == "audio/ogg"
     assert body["audio"]["deleted"] is False
-    assert body["evaluation"]["asr_doubts"] == doubts
+    assert body["evaluation"]["asr_doubts"] == [useful]  # перефраз убран при выдаче (010 §6)
     session_body = (await client.get(f"/sessions/{session['id']}")).json()
     assert session_body["questions"][0]["answer"]["kind"] == "voice"
 
