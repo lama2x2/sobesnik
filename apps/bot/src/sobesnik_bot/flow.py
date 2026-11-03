@@ -499,11 +499,15 @@ class Trainer:
             return
         n = n or self.questions
         vacancy = state.vacancy_id
+        required_only, difficulty = state.required_only, state.difficulty
         await self._open_session(
             chat_id,
             telegram_id,
-            render.preparing(n),
-            lambda: self.api.create_session(vacancy, n, topics),
+            render.preparing(n, render.options_line(required_only, difficulty)),
+            lambda: self.api.create_session(
+                vacancy, n, topics, required_only=required_only, difficulty=difficulty
+            ),
+            {"no_required_requirements": render.NO_REQUIRED},
         )
 
     async def _ready(self, chat_id: int, telegram_id: int) -> UserState | None:
@@ -560,11 +564,12 @@ class Trainer:
                 return
             user_id = state.user_id
             assert user_id is not None
+            difficulty = state.difficulty
             await self._open_session(
                 chat_id,
                 telegram_id,
                 render.PREPARING_REPEAT,
-                lambda: self.api.create_repeat(user_id, n or self.questions),
+                lambda: self.api.create_repeat(user_id, n or self.questions, difficulty=difficulty),
                 {"nothing_to_repeat": render.NOTHING_TO_REPEAT},
             )
 
@@ -853,6 +858,47 @@ class Trainer:
             await self._send(chat_id, text, markup)
         else:
             await self._edit(chat_id, message_id, text, markup)
+
+    # --- настройки тренировки (010 §5) ------------------------------------------
+
+    async def settings_open(self, chat_id: int, telegram_id: int) -> None:
+        state = await self.store.get_user(telegram_id)
+        await self._send(
+            chat_id,
+            render.SETTINGS_TEXT,
+            render.settings_keyboard(state.required_only, state.difficulty),
+        )
+
+    async def settings_action(
+        self, chat_id: int, message_id: int, telegram_id: int, action: str
+    ) -> None:
+        """Переключатели меняют состояние сразу; «Готово» сворачивает экран в одну строку."""
+        state = await self.store.get_user(telegram_id)
+        if action == "required":
+            state.required_only = not state.required_only
+        elif action in ("easier", "same", "harder"):
+            state.difficulty = action  # type: ignore[assignment]  # проверено строкой выше
+        elif action != "done":
+            return
+        await self.store.save_user(telegram_id, state)
+        if action == "done":
+            text = render.settings_saved(state.required_only, state.difficulty)
+            await self._edit(chat_id, message_id, text)
+            return
+        await self._edit(
+            chat_id,
+            message_id,
+            render.SETTINGS_TEXT,
+            render.settings_keyboard(state.required_only, state.difficulty),
+        )
+        log.info(
+            "training settings",
+            extra={
+                "telegram_id": telegram_id,
+                "required_only": state.required_only,
+                "difficulty": state.difficulty,
+            },
+        )
 
     async def pick_open(self, chat_id: int, telegram_id: int, vacancy_id: uuid.UUID) -> str | None:
         """Список тем вакансии отдельным сообщением. Возвращает текст всплывашки или `None`."""

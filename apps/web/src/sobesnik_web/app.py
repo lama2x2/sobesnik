@@ -52,6 +52,7 @@ def make_templates() -> Jinja2Templates:
         PRIVACY_NOTE=render.PRIVACY_NOTE,
         DOUBTS_SHOWN=render.DOUBTS_SHOWN,
         POINT_MARKS=render.POINT_MARKS,
+        DIFFICULTY_TITLES=render.DIFFICULTY_TITLES,
         SLOW_AFTER_S=render.SLOW_AFTER_S,
         QUESTIONS_MIN=render.QUESTIONS_MIN,
         QUESTIONS_MAX=render.QUESTIONS_MAX,

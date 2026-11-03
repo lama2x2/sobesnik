@@ -19,6 +19,7 @@ from sobesnik_web.api import (
     LEVELS,
     Answer,
     ApiError,
+    Difficulty,
     Gate,
     Level,
     LlmStatus,
@@ -220,9 +221,14 @@ async def train(
         render.QUESTIONS_DEFAULT
     ),
     topics: Annotated[list[str] | None, Form()] = None,
+    required_only: Annotated[bool, Form()] = False,
+    difficulty: Annotated[Difficulty, Form()] = "same",
 ) -> Response:
-    """Генерация вопросов — около 30–40 с; темы не отмечены — по всей вакансии."""
-    session = await user.api.create_session(vacancy_id, n, topics or None)
+    """Генерация вопросов — около 30–40 с; темы не отмечены — по всей вакансии; настройки —
+    только обязательные и сложность (010 §5)."""
+    session = await user.api.create_session(
+        vacancy_id, n, topics or None, required_only, difficulty
+    )
     return go(request, f"/sessions/{session.id}")
 
 
@@ -413,9 +419,10 @@ async def repeat(
     n: Annotated[int, Form(ge=render.QUESTIONS_MIN, le=render.QUESTIONS_MAX)] = (
         render.QUESTIONS_DEFAULT
     ),
+    difficulty: Annotated[Difficulty, Form()] = "same",
 ) -> Response:
     """Новые вопросы по слабым темам (С5, PRG-3) — около 40 с."""
-    session = await user.api.create_repeat(n)
+    session = await user.api.create_repeat(n, difficulty)
     return go(request, f"/sessions/{session.id}")
 
 

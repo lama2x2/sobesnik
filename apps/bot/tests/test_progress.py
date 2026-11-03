@@ -15,7 +15,15 @@ from sobesnik_bot.api import (
     TopicProgress,
 )
 from sobesnik_bot.flow import Trainer
-from sobesnik_bot.render import ForgetCb, ProgressCb, RepeatCb, SkipCb, TopicsCb
+from sobesnik_bot.render import (
+    ForgetCb,
+    ProgressCb,
+    RepeatCb,
+    SettingsCb,
+    SkipCb,
+    TopicsCb,
+    TrainCb,
+)
 from sobesnik_bot.state import StateStore
 
 from .conftest import USER, Chat_, FakeApi, FakeSession
@@ -314,3 +322,53 @@ async def test_forget_all_error(user: Chat_, api: FakeApi, tg: FakeSession) -> N
 async def test_help_mentions_new_commands(user: Chat_, tg: FakeSession) -> None:
     await user.send("/help")
     assert "/progress" in tg.last_text() and "/repeat" in tg.last_text()
+
+
+async def test_training_settings(
+    user: Chat_, api: FakeApi, tg: FakeSession, store: StateStore
+) -> None:
+    """⚙️ Настройки (010 §5): запоминаются и действуют на «Начать», 5/10/15, темы и /repeat."""
+    await user.send("Ищем Python-разработчика")
+    keyboard = tg.of(EditMessageText)[-1].reply_markup.inline_keyboard
+    assert [b.text for b in keyboard[-1]] == ["🎯 Выбрать темы", "⚙️ Настройки"]
+
+    await user.press(SettingsCb(action="open").pack())
+    rows = tg.of(SendMessage)[-1].reply_markup.inline_keyboard
+    assert rows[0][0].text == "☐ Только обязательные"
+    assert [b.text for b in rows[1]] == ["проще", "✓ как в вакансии", "сложнее"]
+
+    await user.press(SettingsCb(action="required").pack())
+    await user.press(SettingsCb(action="harder").pack())
+    rows = tg.of(EditMessageText)[-1].reply_markup.inline_keyboard
+    assert rows[0][0].text == "☑ Только обязательные"
+    assert [b.text for b in rows[1]] == ["проще", "как в вакансии", "✓ сложнее"]
+    await user.press(SettingsCb(action="done").pack())
+    assert tg.last_text() == "⚙️ Настройки: только обязательные · сложнее."
+    state = await store.get_user(USER)
+    assert (state.required_only, state.difficulty) == (True, "harder")
+
+    await user.press(TrainCb(vacancy_id=api.vacancy.id, n=10).pack())
+    assert api.calls[-1] == (
+        "create_session",
+        {"vacancy_id": api.vacancy.id, "n": 10, "required_only": True, "difficulty": "harder"},
+    )
+    assert render.preparing(10, "только обязательные · сложнее") in tg.texts()
+
+    await user.send("/repeat")
+    assert api.calls[-1] == (
+        "create_repeat",
+        {"user_id": api.user_id, "n": 3, "difficulty": "harder"},
+    )
+
+    api.errors["create_session"] = ApiError(422, "no_required_requirements", "нет")
+    await user.press(TrainCb(vacancy_id=api.vacancy.id, new=True).pack())
+    assert tg.last_text() == render.NO_REQUIRED
+
+    # вернуть как было — запросы снова без настроек
+    await user.press(SettingsCb(action="open").pack())
+    await user.press(SettingsCb(action="required").pack())
+    await user.press(SettingsCb(action="same").pack())
+    await user.press(SettingsCb(action="done").pack())
+    assert tg.last_text() == "⚙️ Настройки: по всей вакансии, как в вакансии."
+    await user.press(TrainCb(vacancy_id=api.vacancy.id, new=True).pack())
+    assert api.calls[-1] == ("create_session", {"vacancy_id": api.vacancy.id, "n": 3})

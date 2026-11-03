@@ -26,6 +26,7 @@ from sobesnik_bot.api import (
     Answer,
     ApiError,
     CriterionScore,
+    Difficulty,
     Doc,
     Evaluation,
     Forgotten,
@@ -215,12 +216,23 @@ class FakeApi:
         return self.vacancy
 
     async def create_session(
-        self, vacancy_id: uuid.UUID, n: int, topics: list[str] | None = None
+        self,
+        vacancy_id: uuid.UUID,
+        n: int,
+        topics: list[str] | None = None,
+        *,
+        required_only: bool = False,
+        difficulty: Difficulty = "same",
     ) -> Session:
-        if topics is None:
-            self._call("create_session", vacancy_id=vacancy_id, n=n)
-        else:
-            self._call("create_session", vacancy_id=vacancy_id, n=n, topics=topics)
+        """В `calls` — только заданные параметры: старые проверки не знают о настройках."""
+        extra: dict[str, Any] = {}
+        if topics is not None:
+            extra["topics"] = topics
+        if required_only:
+            extra["required_only"] = True
+        if difficulty != "same":
+            extra["difficulty"] = difficulty
+        self._call("create_session", vacancy_id=vacancy_id, n=n, **extra)
         return self._new_session(vacancy_id, n, "vacancy")
 
     def _new_session(self, vacancy_id: uuid.UUID | None, n: int, mode: str) -> Session:
@@ -234,8 +246,11 @@ class FakeApi:
         self.answers.clear()
         return self.session
 
-    async def create_repeat(self, user_id: uuid.UUID, n: int) -> Session:
-        self._call("create_repeat", user_id=user_id, n=n)
+    async def create_repeat(
+        self, user_id: uuid.UUID, n: int, *, difficulty: Difficulty = "same"
+    ) -> Session:
+        extra = {"difficulty": difficulty} if difficulty != "same" else {}
+        self._call("create_repeat", user_id=user_id, n=n, **extra)
         return self._new_session(None, 2, "repeat")
 
     async def get_progress(self, user_id: uuid.UUID) -> Progress:

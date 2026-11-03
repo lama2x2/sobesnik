@@ -15,6 +15,7 @@ from sobesnik_bot.render import (
     ProgressCb,
     RepeatCb,
     ReviewCb,
+    SettingsCb,
     SkipCb,
     TopicsCb,
     TrainCb,
@@ -215,6 +216,15 @@ def build_router(trainer: Trainer) -> Router:
         await query.answer()
         chat_id, _, _ = _cb_ids(query)
         await trainer.review(chat_id, callback_data.answer_id)
+
+    @router.callback_query(SettingsCb.filter())
+    async def settings(query: CallbackQuery, callback_data: SettingsCb) -> None:
+        await query.answer()
+        chat_id, message_id, telegram_id = _cb_ids(query)
+        if callback_data.action == "open":
+            await trainer.settings_open(chat_id, telegram_id)
+        else:
+            await trainer.settings_action(chat_id, message_id, telegram_id, callback_data.action)
 
     @router.callback_query(NewVacancyCb.filter())
     async def new_vacancy(query: CallbackQuery) -> None:

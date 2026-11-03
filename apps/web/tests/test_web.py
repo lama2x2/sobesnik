@@ -312,13 +312,35 @@ async def test_train_with_topics(browser: AsyncClient, fake: Any) -> None:
     assert response.headers["HX-Redirect"] == f"/sessions/{fake.session.id}"
     assert fake.calls[-1] == (
         "create_session",
-        (fake.vacancy.id, 3, ["db.indexes", "python.asyncio"]),
+        (fake.vacancy.id, 3, ["db.indexes", "python.asyncio"], False, "same"),
     )
 
 
 async def test_train_whole_vacancy(browser: AsyncClient, fake: Any) -> None:
     await browser.post(f"/vacancies/{fake.vacancy.id}/train", data={"n": "5"}, headers=HX)
-    assert fake.calls[-1] == ("create_session", (fake.vacancy.id, 5, None))
+    assert fake.calls[-1] == ("create_session", (fake.vacancy.id, 5, None, False, "same"))
+
+
+async def test_train_settings(browser: AsyncClient, fake: Any) -> None:
+    page = (await browser.get(f"/vacancies/{fake.vacancy.id}")).text
+    assert 'name="required_only"' in page
+    assert '<option value="same" selected>Как в вакансии</option>' in page
+    await browser.post(
+        f"/vacancies/{fake.vacancy.id}/train",
+        data={"n": "4", "required_only": "true", "difficulty": "harder"},
+        headers=HX,
+    )
+    assert fake.calls[-1] == ("create_session", (fake.vacancy.id, 4, None, True, "harder"))
+    bad = await browser.post(
+        f"/vacancies/{fake.vacancy.id}/train", data={"difficulty": "hard"}, headers=HX
+    )
+    assert bad.status_code == 422
+
+    fake.fail["create_session"] = ApiError(422, "no_required_requirements", "нет")
+    failed = await browser.post(
+        f"/vacancies/{fake.vacancy.id}/train", data={"required_only": "true"}, headers=HX
+    )
+    assert "нет обязательных требований" in failed.text
 
 
 async def test_train_count_bounds(browser: AsyncClient, fake: Any) -> None:
@@ -589,7 +611,9 @@ async def test_progress_empty(browser: AsyncClient) -> None:
 async def test_repeat(browser: AsyncClient, fake: Any) -> None:
     response = await browser.post("/repeat", data={"n": "4"}, headers=HX)
     assert response.headers["HX-Redirect"] == f"/sessions/{fake.session.id}"
-    assert fake.calls[-1] == ("create_repeat", (4,))
+    assert fake.calls[-1] == ("create_repeat", (4, "same"))
+    await browser.post("/repeat", data={"n": "4", "difficulty": "easier"}, headers=HX)
+    assert fake.calls[-1] == ("create_repeat", (4, "easier"))
 
 
 async def test_nothing_to_repeat(browser: AsyncClient, fake: Any) -> None:

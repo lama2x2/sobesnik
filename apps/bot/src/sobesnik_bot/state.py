@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from redis.asyncio import Redis
 
+from sobesnik_bot.api import Difficulty
+
 Mode = Literal["idle", "answer", "waiting"]
 """`answer` — ждём ответа на вопрос, `waiting` — ответ принят, ждём оценку."""
 
@@ -31,6 +33,9 @@ class UserState:
     """Сессия, в которой уже показана оговорка «балл примерный, ±20» (006 §8.2)."""
     picked: list[str] = field(default_factory=list)
     """Темы, отмеченные в выборе перед тренировкой (007 §8.3)."""
+    required_only: bool = False
+    difficulty: Difficulty = "same"
+    """Настройки тренировки (010 §5): действуют на все тренировки и /repeat, пока не сменят."""
 
 
 @dataclass
@@ -85,6 +90,8 @@ class StateStore:
             mode=data.get("mode", "idle"),
             noted_session=_uuid(data.get("noted_session")),
             picked=list(data.get("picked", [])),
+            required_only=bool(data.get("required_only", False)),
+            difficulty=data.get("difficulty", "same"),
         )
 
     async def save_user(self, telegram_id: int, state: UserState) -> None:

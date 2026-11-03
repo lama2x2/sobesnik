@@ -16,6 +16,9 @@
       {% endfor %}
     </fieldset>
     {% endif %}
+    <label class="check"><input type="checkbox" name="required_only" value="true">
+      Только обязательные требования</label>
+    {% include "_difficulty.html" %}
     <label>Вопросов
       <input type="number" name="n" value="{{ QUESTIONS_DEFAULT }}" min="{{ QUESTIONS_MIN }}"
              max="{{ QUESTIONS_MAX }}" class="narrow"></label>

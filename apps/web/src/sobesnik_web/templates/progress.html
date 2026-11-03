@@ -36,6 +36,7 @@
   <form hx-post="/repeat" class="row" data-wait="🧩 Готовлю вопросы по слабым темам… обычно около 40 секунд">
     <label>Вопросов <input type="number" name="n" value="{{ QUESTIONS_DEFAULT }}" min="{{ QUESTIONS_MIN }}"
            max="{{ QUESTIONS_MAX }}" class="narrow"></label>
+    {% include "_difficulty.html" %}
     <button>🔁 Повторить слабые темы</button>
   </form>
   {% endif %}

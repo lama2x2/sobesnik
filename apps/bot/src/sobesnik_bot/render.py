@@ -13,6 +13,7 @@ from sobesnik_bot.api import (
     LEVELS,
     Answer,
     ApiError,
+    Difficulty,
     Doc,
     Level,
     Progress,
@@ -85,6 +86,13 @@ class TopicsCb(CallbackData, prefix="topics"):
     vacancy_id: uuid.UUID | None = None
     i: int = 0
     """Для `toggle` — номер темы, для `start` — число вопросов."""
+
+
+class SettingsCb(CallbackData, prefix="opts"):
+    """Настройки тренировки (010 §5.1)."""
+
+    action: str
+    """`open`, `required` (переключить), `easier`, `same`, `harder`, `done`."""
 
 
 class ProgressCb(CallbackData, prefix="progress"):
@@ -179,8 +187,9 @@ def web_link_text(web_url: str, secret: str, code: str) -> str:
     )
 
 
-def preparing(n: int) -> str:
-    return f"🧩 Готовлю вопросы ({n})… обычно около 40 секунд."
+def preparing(n: int, options: str = "") -> str:
+    extra = f", {options}" if options else ""
+    return f"🧩 Готовлю вопросы ({n}{extra})… обычно около 40 секунд."
 
 
 def forgotten_all(vacancies: int, answers: int, audio: int) -> str:
@@ -236,7 +245,61 @@ def vacancy_keyboard(vacancy: Vacancy) -> InlineKeyboardMarkup:
         text="🎯 Выбрать темы",
         callback_data=TopicsCb(action="open", vacancy_id=vacancy.id).pack(),
     )
-    return InlineKeyboardMarkup(inline_keyboard=[levels[:3], levels[3:], [start], more, [pick]])
+    settings = InlineKeyboardButton(
+        text="⚙️ Настройки", callback_data=SettingsCb(action="open").pack()
+    )
+    return InlineKeyboardMarkup(
+        inline_keyboard=[levels[:3], levels[3:], [start], more, [pick, settings]]
+    )
+
+
+# --- настройки тренировки (010 §5) ---------------------------------------------
+
+DIFFICULTY_TITLES: dict[Difficulty, str] = {
+    "easier": "проще",
+    "same": "как в вакансии",
+    "harder": "сложнее",
+}
+SETTINGS_TEXT = (
+    "<b>⚙️ Настройки тренировки</b>\n"
+    "Действуют на все тренировки и /repeat, пока не смените.\n\n"
+    "• <b>Только обязательные</b> — вопросы только по требованиям с ✱.\n"
+    "• <b>Сложность</b> — вопросы на уровень проще или сложнее, чем в вакансии."
+)
+NO_REQUIRED = (
+    "В вакансии нет обязательных требований (✱) — снимите «Только обязательные» в ⚙️ Настройках."
+)
+
+
+def options_line(required_only: bool, difficulty: Difficulty) -> str:
+    """Не по умолчанию — короткая строка «только обязательные · сложнее», иначе пусто."""
+    parts = []
+    if required_only:
+        parts.append("только обязательные")
+    if difficulty != "same":
+        parts.append(DIFFICULTY_TITLES[difficulty])
+    return " · ".join(parts)
+
+
+def settings_keyboard(required_only: bool, difficulty: Difficulty) -> InlineKeyboardMarkup:
+    required = InlineKeyboardButton(
+        text=f"{'☑' if required_only else '☐'} Только обязательные",
+        callback_data=SettingsCb(action="required").pack(),
+    )
+    levels = [
+        InlineKeyboardButton(
+            text=f"✓ {title}" if value == difficulty else title,
+            callback_data=SettingsCb(action=value).pack(),
+        )
+        for value, title in DIFFICULTY_TITLES.items()
+    ]
+    done = InlineKeyboardButton(text="Готово", callback_data=SettingsCb(action="done").pack())
+    return InlineKeyboardMarkup(inline_keyboard=[[required], levels, [done]])
+
+
+def settings_saved(required_only: bool, difficulty: Difficulty) -> str:
+    line = options_line(required_only, difficulty)
+    return f"⚙️ Настройки: {line}." if line else "⚙️ Настройки: по всей вакансии, как в вакансии."
 
 
 # --- выбор тем ----------------------------------------------------------------

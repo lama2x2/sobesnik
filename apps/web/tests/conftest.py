@@ -12,6 +12,7 @@ from sobesnik_web.api import (
     Accepted,
     Answer,
     ApiError,
+    Difficulty,
     Doc,
     Forgotten,
     Level,
@@ -182,13 +183,18 @@ class UserApi:
         return v
 
     async def create_session(
-        self, vacancy_id: uuid.UUID, n: int, topics: list[str] | None
+        self,
+        vacancy_id: uuid.UUID,
+        n: int,
+        topics: list[str] | None,
+        required_only: bool = False,
+        difficulty: Difficulty = "same",
     ) -> Session:
-        self.fake._check("create_session", vacancy_id, n, topics)
+        self.fake._check("create_session", vacancy_id, n, topics, required_only, difficulty)
         return self.fake.session
 
-    async def create_repeat(self, n: int) -> Session:
-        self.fake._check("create_repeat", n)
+    async def create_repeat(self, n: int, difficulty: Difficulty = "same") -> Session:
+        self.fake._check("create_repeat", n, difficulty)
         return self.fake.session
 
     async def get_session(self, session_id: uuid.UUID) -> Session:

@@ -1,0 +1,7 @@
+{# Сложность тренировки (010 §5): сдвиг уровня вакансии на шаг #}
+<label>Сложность
+  <select name="difficulty">
+    {% for value, title in DIFFICULTY_TITLES.items() %}
+    <option value="{{ value }}"{% if value == "same" %} selected{% endif %}>{{ title }}</option>
+    {% endfor %}
+  </select></label>

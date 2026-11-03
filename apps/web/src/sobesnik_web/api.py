@@ -16,6 +16,8 @@ TIMEOUT_S = 150.0
 """С запасом над таймаутом LLM в API (120 с): разбор и генерация идут синхронно."""
 
 Level = Literal["intern", "junior", "middle", "senior", "lead"]
+Difficulty = Literal["easier", "same", "harder"]
+"""Сложность тренировки: сдвиг уровня на шаг (010 §5)."""
 LEVELS: tuple[Level, ...] = ("intern", "junior", "middle", "senior", "lead")
 FINAL_STATUSES = frozenset({"done", "failed"})
 
@@ -271,10 +273,15 @@ class Api(Protocol):
     ) -> Vacancy: ...
 
     async def create_session(
-        self, vacancy_id: uuid.UUID, n: int, topics: list[str] | None
+        self,
+        vacancy_id: uuid.UUID,
+        n: int,
+        topics: list[str] | None,
+        required_only: bool = False,
+        difficulty: Difficulty = "same",
     ) -> Session: ...
 
-    async def create_repeat(self, n: int) -> Session: ...
+    async def create_repeat(self, n: int, difficulty: Difficulty = "same") -> Session: ...
 
     async def get_session(self, session_id: uuid.UUID) -> Session: ...
 
@@ -400,15 +407,26 @@ class UserClient(_Http):
         return await self._call(Vacancy, "PATCH", f"/vacancies/{vacancy_id}", json=body)
 
     async def create_session(
-        self, vacancy_id: uuid.UUID, n: int, topics: list[str] | None
+        self,
+        vacancy_id: uuid.UUID,
+        n: int,
+        topics: list[str] | None,
+        required_only: bool = False,
+        difficulty: Difficulty = "same",
     ) -> Session:
-        body: dict[str, Any] = {"vacancy_id": str(vacancy_id), "n": n}
+        body: dict[str, Any] = {
+            "vacancy_id": str(vacancy_id),
+            "n": n,
+            "required_only": required_only,
+            "difficulty": difficulty,
+        }
         if topics:
             body["topics"] = topics
         return await self._call(Session, "POST", "/sessions", json=body)
 
-    async def create_repeat(self, n: int) -> Session:
-        return await self._call(Session, "POST", "/sessions", json={"mode": "repeat", "n": n})
+    async def create_repeat(self, n: int, difficulty: Difficulty = "same") -> Session:
+        body = {"mode": "repeat", "n": n, "difficulty": difficulty}
+        return await self._call(Session, "POST", "/sessions", json=body)
 
     async def get_session(self, session_id: uuid.UUID) -> Session:
         return await self._call(Session, "GET", f"/sessions/{session_id}")
