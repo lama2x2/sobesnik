@@ -1,3 +1,6 @@
+# Профили запуска (008 §4): mac — по умолчанию, ничего задавать не нужно; cloud — переменные LLM_*
+# в .env; gpu — COMPOSE_FILE=compose.yaml:deploy/compose.gpu.yaml в .env. Вторая копия на той же
+# машине — COMPOSE_PROJECT_NAME и API_PORT в .env: свои контейнеры, тома и порт.
 name: sobesnik
 
 x-app: &app
@@ -66,7 +69,8 @@ services:
       context: .
       target: runtime
     ports:
-      - "8000:8000"
+      # только на этом компьютере (008, решение 3); бот и tools ходят в api:8000 по сети compose
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     restart: unless-stopped
     healthcheck:
       test:

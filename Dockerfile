@@ -1,4 +1,5 @@
-# Один образ на весь репозиторий: target runtime — для api, worker и bot, dev — для tools.
+# Один образ на весь репозиторий: target runtime — для api, worker и bot, dev — для tools,
+# runtime-gpu — для worker в профиле gpu.
 FROM python:3.12-slim AS base
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
@@ -23,6 +24,13 @@ ENV UV_NO_SYNC=1 PATH=/opt/venv/bin:$PATH
 WORKDIR /app/apps/api
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && exec uvicorn sobesnik_api.main:app --host 0.0.0.0 --port 8000 --no-access-log"]
+
+# Профиль gpu (008 §4): воркер с whisper на CUDA. CUDA-библиотеки для faster-whisper (CTranslate2 4:
+# CUDA 12, cuDNN 9) ставятся pip-пакетами NVIDIA — без тяжёлого образа nvidia/cuda.
+FROM runtime AS runtime-gpu
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python /opt/venv "nvidia-cublas-cu12==12.*" "nvidia-cudnn-cu12==9.*"
+ENV LD_LIBRARY_PATH=/opt/venv/lib/python3.12/site-packages/nvidia/cublas/lib:/opt/venv/lib/python3.12/site-packages/nvidia/cudnn/lib
 
 FROM base AS dev
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-install-workspace

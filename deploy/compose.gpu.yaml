@@ -1,0 +1,60 @@
+# Профиль gpu (008 §4): Linux-сервер с NVIDIA, Ollama и whisper в контейнерах на GPU.
+# Включается строкой в .env:  COMPOSE_FILE=compose.yaml:deploy/compose.gpu.yaml
+# Нужен NVIDIA Container Toolkit. Модель LLM_MODEL скачивается сама при первом `up` (ollama-pull).
+# Не проверен на реальном GPU: у автора нет сервера (008 «Итоги»).
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  ollama:
+    <<: *gpu
+    image: ollama/ollama:0.33.2
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+    restart: unless-stopped
+
+  # Одноразово: скачать модель из .env (по умолчанию qwen3.5:4b) и выйти.
+  ollama-pull:
+    image: ollama/ollama:0.33.2
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${LLM_MODEL:-qwen3.5:4b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    environment:
+      LLM_BASE_URL: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  worker:
+    <<: *gpu
+    build:
+      context: .
+      target: runtime-gpu
+    environment:
+      LLM_BASE_URL: http://ollama:11434
+      ASR_DEVICE: cuda
+      ASR_COMPUTE_TYPE: float16
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
+volumes:
+  ollama-models:
