@@ -168,6 +168,9 @@ class Question(Base):
     source: Mapped[str] = mapped_column(Text, default="generated")
     reference_answer: Mapped[str | None] = mapped_column(Text)
     """Эталонный ответ из датасета: ориентир оценщику для полноты (000 §9)."""
+    key_points_check: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    """Проверка пунктов отдельным вызовом модели (011 §6): `{"issues": [{"n", "issue"}], "model",
+    "prompt_version", "latency_ms"}`; `null` — не проверялись или модель не ответила."""
     dataset_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("dataset.id", ondelete="CASCADE")
     )

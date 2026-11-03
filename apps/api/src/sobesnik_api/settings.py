@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     progress_weak_avg: float = 60
     progress_low_score: float = 60
 
+    # Проверка пунктов эталона моделью в фоне (011 §6): выключена — на qwen3.5:4b ненадёжна
+    key_points_check: bool = False
+
     fetch_timeout_s: float = 10.0
     fetch_allow_private: bool = False
     fetch_allow_networks: str = ""

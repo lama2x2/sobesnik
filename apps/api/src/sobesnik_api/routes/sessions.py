@@ -1,3 +1,4 @@
+import logging
 import uuid
 from statistics import mean
 
@@ -6,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sobesnik_api.auth import Caller, CallerDep
 from sobesnik_api.db.models import TrainingSession
-from sobesnik_api.deps import DB, LLM, AppSettings
+from sobesnik_api.deps import DB, LLM, AppSettings, Queue
 from sobesnik_api.errors import NotFoundError, UnprocessableError
 from sobesnik_api.routes.vacancies import owned_vacancy
 from sobesnik_api.schemas import (
@@ -21,6 +22,8 @@ from sobesnik_api.schemas import (
 )
 from sobesnik_api.services.answers import AnswerState, finish_session, session_answers
 from sobesnik_api.services.sessions import create_repeat_session, create_session, get_session
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["sessions"])
 
@@ -102,7 +105,12 @@ async def owned_session(db: AsyncSession, caller: Caller, session_id: uuid.UUID)
 
 @router.post("/sessions", status_code=201)
 async def post_session(
-    body: SessionCreate, db: DB, llm: LLM, settings: AppSettings, caller: CallerDep
+    body: SessionCreate,
+    db: DB,
+    llm: LLM,
+    settings: AppSettings,
+    queue: Queue,
+    caller: CallerDep,
 ) -> SessionOut:
     if body.mode == "repeat":
         user_id = caller.user_for(body.user_id)
@@ -131,6 +139,14 @@ async def post_session(
             difficulty=body.difficulty,
             max_retries=settings.llm_max_retries,
         )
+    if settings.key_points_check:
+        try:  # проверка пунктов в фоне (011 §6): не встала в очередь — сессия всё равно есть
+            await queue.enqueue_key_points_check(session.id)
+        except Exception as exc:
+            log.warning(
+                "key points check not queued",
+                extra={"session_id": str(session.id), "error": type(exc).__name__},
+            )
     return await session_out(db, session)
 
 

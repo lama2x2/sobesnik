@@ -27,6 +27,7 @@ from sobesnik_api.events import AnswerEvents, NullAnswerEvents, RedisAnswerEvent
 from sobesnik_api.logging_setup import configure_logging
 from sobesnik_api.queue import (
     EVALUATE_JOB,
+    KEY_POINTS_JOB,
     RUN_JOB,
     TRANSCRIBE_JOB,
     ArqQueue,
@@ -36,6 +37,7 @@ from sobesnik_api.queue import (
 from sobesnik_api.services.answers import IN_PROGRESS
 from sobesnik_api.services.eval_runs import execute_run
 from sobesnik_api.services.evaluation import EvalConfig, evaluate_and_store
+from sobesnik_api.services.key_points_check import check_session
 from sobesnik_api.services.progress import update_after_evaluation
 from sobesnik_api.services.voice import answer_audio, cleanup_expired_audio, latest_transcript
 from sobesnik_api.settings import Settings
@@ -369,6 +371,18 @@ async def run_eval_job(ctx: dict[str, Any], run_id: str) -> None:
     await process_run(ctx["deps"], uuid.UUID(run_id))
 
 
+async def process_key_points_check(deps: WorkerDeps, session_id: uuid.UUID) -> int | None:
+    """Проверка пунктов эталона сессии моделью оценки (011 §6). Сбой — только запись в лог."""
+    async with deps.sessionmaker() as db:
+        return await check_session(
+            db, deps.llm, session_id, max_retries=deps.settings.llm_max_retries
+        )
+
+
+async def check_key_points_job(ctx: dict[str, Any], session_id: str) -> None:
+    await process_key_points_check(ctx["deps"], uuid.UUID(session_id))
+
+
 async def cleanup_audio_job(ctx: dict[str, Any]) -> None:
     await process_cleanup(ctx["deps"])
 
@@ -391,6 +405,7 @@ class WorkerSettings:
             max_tries=_settings.eval_max_tries,
         ),
         func(run_eval_job, name=RUN_JOB, timeout=RUN_TIMEOUT_S, max_tries=3),
+        func(check_key_points_job, name=KEY_POINTS_JOB, timeout=EVALUATE_TIMEOUT_S, max_tries=1),
     )
     # аудио с истёкшим TTL удаляется раз в час
     cron_jobs = (cron(cleanup_audio_job, minute=7, run_at_startup=True),)

@@ -248,6 +248,7 @@ class FakeQueue:
         self.evaluations: list[uuid.UUID] = []
         self.transcriptions: list[uuid.UUID] = []
         self.runs: list[uuid.UUID] = []
+        self.key_points: list[uuid.UUID] = []
         self.broken = False
 
     async def enqueue_evaluation(self, answer_id: uuid.UUID) -> None:
@@ -264,6 +265,11 @@ class FakeQueue:
         if self.broken:
             raise ConnectionError("redis недоступен")
         self.runs.append(run_id)
+
+    async def enqueue_key_points_check(self, session_id: uuid.UUID) -> None:
+        if self.broken:
+            raise ConnectionError("redis недоступен")
+        self.key_points.append(session_id)
 
     async def aclose(self) -> None:
         pass

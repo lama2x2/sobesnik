@@ -131,6 +131,8 @@ class ReviewPoint(_Model):
     text: str
     status: Literal["covered", "missed"]
     comment: str
+    doubt: str | None = None
+    """Сам пункт эталона, возможно, неверен (011 §6)."""
 
 
 class ReviewMistake(_Model):

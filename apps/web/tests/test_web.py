@@ -417,11 +417,14 @@ async def test_review_button(browser: AsyncClient, fake: Any) -> None:
     assert "В самом вопросе неточность: в индексе (id, status) первый — id" in page
     assert 'href="https://example.org/idx"' in response.text
     assert '<details class="review" open>' in response.text
+    assert "возможно, неверен" not in page
 
     # вернулись к вопросу — разбор уже есть, модель не нужна, кнопки нет
+    fake.review.points[1].doubt = "наоборот"  # проверка пунктов включена (011 §6)
     again = await browser.get(f"/sessions/{session.id}?q=1")
     assert ("get_review", (answer_id,)) in fake.calls
     assert "Как мог бы ответить сильный кандидат" in again.text
+    assert "⚠️ Этот пункт эталона, возможно, неверен: наоборот" in text_of(again.text)
     assert f'hx-post="/answers/{answer_id}/review"' not in again.text
 
     fake.fail["review_answer"] = ApiError(409, "transcript_deleted", "нет")

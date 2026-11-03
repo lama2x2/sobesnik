@@ -291,6 +291,8 @@ class ReviewPointOut(BaseModel):
     text: str
     status: Literal["covered", "missed"]
     comment: str
+    doubt: str | None = None
+    """Сам пункт эталона, возможно, неверен — по фоновой проверке (011 §6)."""
 
 
 class ReviewMistakeOut(BaseModel):

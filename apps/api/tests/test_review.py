@@ -87,9 +87,9 @@ async def test_review(
     assert body["cached"] is False
     assert body["reference"].startswith("Сильный ответ")
     assert body["points"] == [
-        {"n": 1, "text": key_points[0], "status": "covered", "comment": "комментарий 1"},
-        {"n": 2, "text": key_points[1], "status": "missed", "comment": "комментарий 2"},
-        {"n": 3, "text": key_points[2], "status": "missed", "comment": "комментарий 3"},
+        {"n": n, "text": key_points[n - 1], "status": status, "comment": f"комментарий {n}"}
+        | {"doubt": None}
+        for n, status in ((1, "covered"), (2, "missed"), (3, "missed"))
     ]
     assert body["mistakes"] == [
         {"quote": "индекс всегда ускоряет", "correction": "Не всегда: запись медленнее."}

@@ -518,6 +518,9 @@ def review_text(review: Review) -> str:
         for p in review.points:
             comment = f" — {escape(p.comment)}" if p.comment else ""
             lines.append(f"{POINT_MARKS[p.status]} {escape(p.text)}{comment}")
+            if p.doubt:
+                doubt = escape(p.doubt)
+                lines.append(f"   ⚠️ <i>Этот пункт эталона, возможно, неверен: {doubt}</i>")
         blocks.append("\n".join(lines))
     if review.mistakes:
         lines = ["<b>Неточности в ответе:</b>"]

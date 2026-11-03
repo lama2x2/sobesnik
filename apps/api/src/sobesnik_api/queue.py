@@ -9,6 +9,7 @@ from arq.connections import ArqRedis, RedisSettings, create_pool
 EVALUATE_JOB = "evaluate_answer_job"
 TRANSCRIBE_JOB = "transcribe_answer_job"
 RUN_JOB = "run_eval_job"
+KEY_POINTS_JOB = "check_key_points_job"
 
 
 def evaluation_job_id(answer_id: uuid.UUID) -> str:
@@ -23,12 +24,18 @@ def run_job_id(run_id: uuid.UUID) -> str:
     return f"run:{run_id}"
 
 
+def key_points_job_id(session_id: uuid.UUID) -> str:
+    return f"key-points:{session_id}"
+
+
 class TaskQueue(Protocol):
     async def enqueue_evaluation(self, answer_id: uuid.UUID) -> None: ...
 
     async def enqueue_transcription(self, answer_id: uuid.UUID) -> None: ...
 
     async def enqueue_run(self, run_id: uuid.UUID) -> None: ...
+
+    async def enqueue_key_points_check(self, session_id: uuid.UUID) -> None: ...
 
     async def aclose(self) -> None: ...
 
@@ -69,6 +76,12 @@ class ArqQueue:
     async def enqueue_run(self, run_id: uuid.UUID) -> None:
         redis = await self._redis()
         await redis.enqueue_job(RUN_JOB, str(run_id), _job_id=run_job_id(run_id))
+
+    async def enqueue_key_points_check(self, session_id: uuid.UUID) -> None:
+        redis = await self._redis()
+        await redis.enqueue_job(
+            KEY_POINTS_JOB, str(session_id), _job_id=key_points_job_id(session_id)
+        )
 
     async def aclose(self) -> None:
         if self._pool is not None and self._own_pool:

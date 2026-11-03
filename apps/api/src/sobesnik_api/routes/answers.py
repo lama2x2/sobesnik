@@ -236,9 +236,17 @@ async def read_answer(
     return await answer_out(db, answer, evaluation, (asr_status, settings.asr_model))
 
 
-def review_out(answer: Answer, result: ReviewResult) -> ReviewOut:
+def key_point_doubts(answer: Answer) -> dict[int, str]:
+    """Сомнения фоновой проверки пунктов (011 §6): номер пункта → почему он, возможно, неверен."""
+    check = answer.question.key_points_check or {}
+    return {item["n"]: item["issue"] for item in check.get("issues", [])}
+
+
+def review_out(answer: Answer, result: ReviewResult, *, doubts: bool = False) -> ReviewOut:
+    """`doubts` — показывать сомнения проверки пунктов (настройка `KEY_POINTS_CHECK`)."""
     content = result.review.content
     comments = {p["n"]: p.get("comment", "") for p in content.get("points", [])}
+    doubt = key_point_doubts(answer) if doubts else {}
     key_points = answer.question.key_points
     return ReviewOut(
         answer_id=answer.id,
@@ -246,7 +254,9 @@ def review_out(answer: Answer, result: ReviewResult) -> ReviewOut:
         cached=result.cached,
         reference=content["reference"],
         points=[
-            ReviewPointOut(n=n, text=text, status=status, comment=comments.get(n, ""))
+            ReviewPointOut(
+                n=n, text=text, status=status, comment=comments.get(n, ""), doubt=doubt.get(n)
+            )
             for n, (text, status) in enumerate(zip(key_points, result.statuses, strict=True), 1)
         ],
         mistakes=[ReviewMistakeOut(**m) for m in content.get("mistakes", [])],
@@ -271,11 +281,13 @@ async def post_review(
     """Подробный разбор: готовый — из БД, иначе вызов модели (~20–40 с на Маке)."""
     answer = _user_answer(await owned_answer(db, caller, answer_id))
     result = await review_answer(db, llm, answer, max_retries=settings.llm_max_retries)
-    return review_out(answer, result)
+    return review_out(answer, result, doubts=settings.key_points_check)
 
 
 @router.get("/answers/{answer_id}/review")
-async def read_review(answer_id: uuid.UUID, db: DB, caller: CallerDep) -> ReviewOut:
+async def read_review(
+    answer_id: uuid.UUID, db: DB, settings: AppSettings, caller: CallerDep
+) -> ReviewOut:
     """Готовый разбор последней оценки; нет — `404 review_not_found`, модель не вызывается."""
     answer = _user_answer(await owned_answer(db, caller, answer_id))
     evaluation = await live_evaluation(db, answer.id)
@@ -287,5 +299,7 @@ async def read_review(answer_id: uuid.UUID, db: DB, caller: CallerDep) -> Review
     if evaluation is None or review is None:
         raise NotFoundError("review_not_found", "разбора ещё нет")
     return review_out(
-        answer, ReviewResult(review, evaluation, statuses_of(answer, evaluation), cached=True)
+        answer,
+        ReviewResult(review, evaluation, statuses_of(answer, evaluation), cached=True),
+        doubts=settings.key_points_check,
     )

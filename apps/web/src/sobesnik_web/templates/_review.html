@@ -10,7 +10,8 @@
   <h3>По пунктам</h3>
   <ul class="points">
     {% for p in review.points %}
-    <li>{{ POINT_MARKS[p.status] }} <b>{{ p.text }}</b>{% if p.comment %} — {{ p.comment }}{% endif %}</li>
+    <li>{{ POINT_MARKS[p.status] }} <b>{{ p.text }}</b>{% if p.comment %} — {{ p.comment }}{% endif %}
+      {% if p.doubt %}<br><span class="muted">⚠️ Этот пункт эталона, возможно, неверен: {{ p.doubt }}</span>{% endif %}</li>
     {% endfor %}
   </ul>
   {% endif %}

@@ -421,6 +421,21 @@ def test_review_text_fits_telegram() -> None:
     assert "Как мог бы ответить" in text
 
 
+def test_review_shows_key_point_doubt() -> None:
+    """Сомнение фоновой проверки пунктов — под пунктом (011 §6)."""
+    review = Review(
+        reference="эталон",
+        points=[
+            ReviewPoint(n=1, text="пункт <1>", status="missed", comment="", doubt="наоборот <b>")
+        ],
+        mistakes=[],
+        question_issue=None,
+        docs=[],
+    )
+    text = render.review_text(review)
+    assert "⚠️ <i>Этот пункт эталона, возможно, неверен: наоборот &lt;b&gt;</i>" in text
+
+
 async def test_forget(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
     await user.send("/forget")
     assert tg.last_text() == render.FORGET_ASK
