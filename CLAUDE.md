@@ -83,7 +83,10 @@ docker compose logs -f web                         # веб-кабинет (бе
 curl -s localhost:8000/api/v1/health/llm | jq     # готова ли модель; hint — что сделать
 docker compose run --rm tools uv run sobesnik-cli eval-run create --name NAME --model MODEL --wait
 docker compose run --rm tools uv run sobesnik-cli export --live -o research/data/eval.csv
-docker compose run --rm tools uv run sobesnik-cli progress rebuild  # пересчитать прогресс по темам из оценок
+docker compose run --rm tools uv run sobesnik-cli progress rebuild  # пересчитать прогресс и сроки SM-2 из оценок
+docker compose run --rm tools uv run sobesnik-cli stats [--since YYYY-MM-DD]  # время операций: медиана, p90
+docker compose run --rm tools uv run python research/repetition/simulate.py  # симуляция повторения под шум оценки
+docker compose run --rm -e LLM_PROVIDER=ollama tools uv run python research/key_points_check/check.py --quick  # проверка пунктов эталона
 docker compose run --rm tools uv run python research/eval_check/check.py  # быстрая живая проверка оценки
 docker compose run --rm tools uv run pytest -m asr     # живое распознавание записи из research/data/asr_check
 docker compose run --rm tools uv run python research/asr_check/check.py --asr-only  # замер whisper
