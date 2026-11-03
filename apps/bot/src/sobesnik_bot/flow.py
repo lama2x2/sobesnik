@@ -749,6 +749,18 @@ class Trainer:
             return
         await self._send(chat_id, render.details_text(answer))
 
+    async def review(self, chat_id: int, answer_id: uuid.UUID) -> None:
+        """«📖 Разобрать подробно» (010 §4): статус и «печатает…», потом разбор вместо статуса."""
+        status = await self._send(chat_id, render.REVIEWING)
+        try:
+            async with self.typing(chat_id):
+                review = await self.api.review_answer(answer_id)
+        except ApiError as exc:
+            await self._edit(chat_id, status.message_id, render.review_error_text(exc))
+            return
+        await self._edit(chat_id, status.message_id, render.review_text(review))
+        log.info("review shown", extra={"answer_id": str(answer_id)})
+
     async def web(self, chat_id: int, telegram_id: int) -> None:
         """`/web`: одноразовая ссылка и код входа в веб-кабинет (009 §5.2). Новая гасит старую."""
         try:

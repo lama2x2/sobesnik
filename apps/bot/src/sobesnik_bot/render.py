@@ -16,6 +16,7 @@ from sobesnik_bot.api import (
     Doc,
     Level,
     Progress,
+    Review,
     Session,
     Summary,
     TopicProgress,
@@ -59,6 +60,10 @@ class SkipCb(CallbackData, prefix="skip"):
 
 
 class DetailsCb(CallbackData, prefix="why"):
+    answer_id: uuid.UUID
+
+
+class ReviewCb(CallbackData, prefix="rev"):
     answer_id: uuid.UUID
 
 
@@ -406,10 +411,56 @@ def docs_line(docs: list[Doc]) -> str:
 
 
 def details_keyboard(answer_id: uuid.UUID) -> InlineKeyboardMarkup:
-    button = InlineKeyboardButton(
+    why = InlineKeyboardButton(
         text="Почему такие баллы?", callback_data=DetailsCb(answer_id=answer_id).pack()
     )
-    return InlineKeyboardMarkup(inline_keyboard=[[button]])
+    review = InlineKeyboardButton(
+        text="📖 Разобрать подробно", callback_data=ReviewCb(answer_id=answer_id).pack()
+    )
+    return InlineKeyboardMarkup(inline_keyboard=[[why], [review]])
+
+
+REVIEWING = "📖 Готовлю разбор… обычно 20–40 секунд."
+REVIEW_MAX_CHARS = 4_000
+"""Лимит сообщения Telegram — 4 096; блоки, которые не влезли, отбрасываются с конца."""
+POINT_MARKS: dict[str, str] = {"covered": "✅", "missed": "❌", "doubtful": "⚠️"}
+REVIEW_ERRORS: dict[str, str] = {
+    "answer_not_evaluated": "Оценки ещё нет — разбор будет после неё.",
+    "transcript_deleted": "Расшифровка этого ответа удалена — разобрать его уже нельзя.",
+    "llm_bad_output": "Не получилось разобрать ответ. Попробуйте ещё раз.",
+}
+
+
+def review_text(review: Review) -> str:
+    """Разбор (010 §4.1): эталон, пункты со статусами из оценки, неточности, ссылки из карты."""
+    blocks = [
+        "<b>📖 Разбор</b>",
+        "<b>Как мог бы ответить сильный кандидат:</b>\n" + escape(review.reference),
+    ]
+    if review.points:
+        lines = ["<b>По пунктам:</b>"]
+        for p in review.points:
+            comment = f" — {escape(p.comment)}" if p.comment else ""
+            lines.append(f"{POINT_MARKS[p.status]} {escape(p.text)}{comment}")
+        blocks.append("\n".join(lines))
+    if review.mistakes:
+        lines = ["<b>Неточности в ответе:</b>"]
+        lines += [f"• «{escape(m.quote)}» → {escape(m.correction)}" for m in review.mistakes]
+        blocks.append("\n".join(lines))
+    if review.question_issue:
+        blocks.append(f"⚠️ <b>В самом вопросе неточность:</b> {escape(review.question_issue)}")
+    tail = "📚 Почитать: " + docs_line(review.docs) if review.docs else ""
+    text = ""
+    for block in blocks:
+        candidate = f"{text}\n\n{block}" if text else block
+        if len(candidate) + len(tail) + 2 > REVIEW_MAX_CHARS:
+            break
+        text = candidate
+    return f"{text}\n\n{tail}" if tail else text
+
+
+def review_error_text(error: ApiError) -> str:
+    return REVIEW_ERRORS.get(error.code) or api_error_text(error)
 
 
 def details_text(answer: Answer) -> str:

@@ -22,6 +22,7 @@ from sobesnik_web.api import (
     Gate,
     Level,
     LlmStatus,
+    Review,
     Session,
 )
 from sobesnik_web.auth import CodeThrottle, User, clear_login, set_login
@@ -229,11 +230,16 @@ async def train(
 
 
 def _answer_context(
-    answer: Answer, session_id: uuid.UUID, position: int, total: int
+    answer: Answer,
+    session_id: uuid.UUID,
+    position: int,
+    total: int,
+    review: Review | None = None,
 ) -> dict[str, Any]:
     elapsed = int((datetime.now(UTC) - answer.created_at).total_seconds())
     return {
         "answer": answer,
+        "review": review,
         "session_id": session_id,
         "position": position,
         "total": total,
@@ -267,7 +273,8 @@ async def session_page(
     question = context["question"]
     if question is not None and question.answer is not None:
         answer = await user.api.get_answer(question.answer.id)
-        context.update(_answer_context(answer, session_id, position, total))
+        review = await user.api.get_review(answer.id) if answer.has_review else None
+        context.update(_answer_context(answer, session_id, position, total, review))
     return page(request, "session.html", context)
 
 
@@ -327,6 +334,14 @@ async def answer_status(
     return page(
         request, "_answer.html", _answer_context(answer, answer.session_id, position, total)
     )
+
+
+@router.post("/answers/{answer_id}/review")
+async def review(request: Request, user: User, answer_id: uuid.UUID) -> HTMLResponse:
+    """«📖 Разобрать подробно» (010 §4): фрагмент вместо кнопки; ошибка — в блок сообщений."""
+    result = await user.api.review_answer(answer_id)
+    log.info("review shown", extra={"answer_id": str(answer_id)})
+    return page(request, "_review.html", {"review": result, "open": True})
 
 
 @router.post("/sessions/{session_id}/finish")

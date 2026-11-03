@@ -51,6 +51,7 @@ def make_templates() -> Jinja2Templates:
         PROGRESS_NOTE=render.PROGRESS_NOTE,
         PRIVACY_NOTE=render.PRIVACY_NOTE,
         DOUBTS_SHOWN=render.DOUBTS_SHOWN,
+        POINT_MARKS=render.POINT_MARKS,
         SLOW_AFTER_S=render.SLOW_AFTER_S,
         QUESTIONS_MIN=render.QUESTIONS_MIN,
         QUESTIONS_MAX=render.QUESTIONS_MAX,

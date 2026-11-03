@@ -8,6 +8,8 @@ from sobesnik_web.api import ApiError, TopicProgress
 GOOD_FROM = 75
 APPROX_STEP = 5
 DOUBTS_SHOWN = 3
+POINT_MARKS = {"covered": "✅", "missed": "❌", "doubtful": "⚠️"}
+"""Пункты в разборе (010 §4): прозвучал / не прозвучал / оценщик считает сам пункт неверным."""
 SLOW_AFTER_S = 60
 """Через сколько секунд статус дополняется «модель думает дольше обычного» (BOT-6)."""
 QUESTIONS_MIN, QUESTIONS_MAX, QUESTIONS_DEFAULT = 3, 15, 5
@@ -56,6 +58,8 @@ FAILURES = {
 """Почему ответ не оценён (`answer.error`)."""
 
 API_ERRORS = {
+    "answer_not_evaluated": "Оценки ещё нет — разбор будет после неё.",
+    "transcript_deleted": "Расшифровка этого ответа удалена — разобрать его уже нельзя.",
     "llm_unavailable": "Модель сейчас недоступна. Проверьте, что Ollama запущена, "
     "и попробуйте ещё раз.",
     "llm_model_missing": "Модель не скачана. На этом компьютере выполните «ollama pull» "

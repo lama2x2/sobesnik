@@ -370,6 +370,44 @@ async def test_text_answer_status_then_result(browser: AsyncClient, fake: Any) -
     assert f"/sessions/{session.id}?q=2" in done.text
 
 
+async def test_review_button(browser: AsyncClient, fake: Any) -> None:
+    session = fake.session
+    question = session.questions[0]
+    await browser.post(
+        f"/sessions/{session.id}/questions/{question.id}/answer",
+        data={"text": "Индекс ускоряет поиск.", "position": "1", "total": "2"},
+        headers=HX,
+    )
+    answer_id = question.answer.id
+    answer = fake.answers[answer_id]
+    fake.answers[answer_id] = answer.model_copy(
+        update={"status": "done", "evaluation": evaluation()}
+    )
+    done = await browser.get(f"/answers/{answer_id}/status?position=1&total=2", headers=HX)
+    assert f'hx-post="/answers/{answer_id}/review"' in done.text
+    assert "Готовлю разбор" in done.text
+
+    response = await browser.post(f"/answers/{answer_id}/review", headers=HX)
+    page = text_of(response.text)
+    assert "Как мог бы ответить сильный кандидат" in page
+    assert "✅ упорядочен по a — верно" in page and "❌ нужен индекс по b — почему" in page
+    assert "«индекс всегда &lt;быстрее&gt;» → не всегда" in response.text
+    assert "В самом вопросе неточность: в индексе (id, status) первый — id" in page
+    assert 'href="https://example.org/idx"' in response.text
+    assert '<details class="review" open>' in response.text
+
+    # вернулись к вопросу — разбор уже есть, модель не нужна, кнопки нет
+    again = await browser.get(f"/sessions/{session.id}?q=1")
+    assert ("get_review", (answer_id,)) in fake.calls
+    assert "Как мог бы ответить сильный кандидат" in again.text
+    assert f'hx-post="/answers/{answer_id}/review"' not in again.text
+
+    fake.fail["review_answer"] = ApiError(409, "transcript_deleted", "нет")
+    failed = await browser.post(f"/answers/{answer_id}/review", headers=HX)
+    assert "Расшифровка этого ответа удалена" in failed.text
+    assert failed.headers["HX-Retarget"] == "#flash"
+
+
 async def test_empty_text_answer(browser: AsyncClient, fake: Any) -> None:
     q = fake.session.questions[0]
     response = await browser.post(

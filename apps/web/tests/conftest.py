@@ -12,12 +12,16 @@ from sobesnik_web.api import (
     Accepted,
     Answer,
     ApiError,
+    Doc,
     Forgotten,
     Level,
     LlmStatus,
     Me,
     Progress,
     Requirement,
+    Review,
+    ReviewMistake,
+    ReviewPoint,
     Session,
     SessionAnswer,
     SessionQuestion,
@@ -89,6 +93,16 @@ class FakeApi:
         self.fail: dict[str, ApiError] = {}
         """Имя метода → ошибка, которую он бросит."""
         self.progress = Progress(topics=[], sessions=[])
+        self.review = Review(
+            reference="Индекс упорядочен по первому столбцу.",
+            points=[
+                ReviewPoint(n=1, text="упорядочен по a", status="covered", comment="верно"),
+                ReviewPoint(n=2, text="нужен индекс по b", status="missed", comment="почему"),
+            ],
+            mistakes=[ReviewMistake(quote="индекс всегда <быстрее>", correction="не всегда")],
+            question_issue="в индексе (id, status) первый — id",
+            docs=[Doc(title="Индексы", url="https://example.org/idx")],
+        )
 
     def _check(self, name: str, *args: Any) -> None:
         self.calls.append((name, args))
@@ -243,6 +257,16 @@ class UserApi:
         if answer is None:
             raise ApiError(404, "answer_not_found", "ответ не найден")
         return answer
+
+    async def review_answer(self, answer_id: uuid.UUID) -> Review:
+        self.fake._check("review_answer", answer_id)
+        answer = self.fake.answers[answer_id]
+        self.fake.answers[answer_id] = answer.model_copy(update={"has_review": True})
+        return self.fake.review
+
+    async def get_review(self, answer_id: uuid.UUID) -> Review:
+        self.fake._check("get_review", answer_id)
+        return self.fake.review
 
     async def get_progress(self, user_id: uuid.UUID) -> Progress:
         self.fake._check("get_progress", user_id)

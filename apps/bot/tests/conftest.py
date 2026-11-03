@@ -33,6 +33,9 @@ from sobesnik_bot.api import (
     LlmStatus,
     Progress,
     Requirement,
+    Review,
+    ReviewMistake,
+    ReviewPoint,
     Session,
     SessionAnswer,
     SessionQuestion,
@@ -159,6 +162,16 @@ class FakeApi:
         self.closed = False
         self.gate: asyncio.Event | None = None
         """Если задан, разбор вакансии ждёт его — как долгий вызов модели."""
+        self.review = Review(
+            reference="Индекс упорядочен по первому столбцу.",
+            points=[
+                ReviewPoint(n=1, text="упорядочен по a", status="covered", comment="верно"),
+                ReviewPoint(n=2, text="нужен индекс по b", status="missed", comment="почему"),
+            ],
+            mistakes=[ReviewMistake(quote="индекс всегда <быстрее>", correction="не всегда")],
+            question_issue=None,
+            docs=[Doc(title="Индексы", url="https://www.postgresql.org/docs/current/indexes.html")],
+        )
         self.llm = LlmStatus(ok=True, model="qwen3.5:4b")
         """Ответ `llm_status`; в `calls` не пишется — его спрашивают попутно, на /start."""
 
@@ -311,6 +324,10 @@ class FakeApi:
     async def get_answer(self, answer_id: uuid.UUID) -> Answer:
         self._call("get_answer", answer_id=answer_id)
         return self.answers[answer_id]
+
+    async def review_answer(self, answer_id: uuid.UUID) -> Review:
+        self._call("review_answer", answer_id=answer_id)
+        return self.review
 
     async def forget_audio(self, user_id: uuid.UUID) -> Forgotten:
         self._call("forget_audio", user_id=user_id)

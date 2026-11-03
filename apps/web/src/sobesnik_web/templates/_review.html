@@ -1,0 +1,27 @@
+{# Подробный разбор (010 §4): нужны review; open — показать развёрнутым #}
+<details class="review"{% if open %} open{% endif %}>
+  <summary>📖 Разбор</summary>
+  {% if review.question_issue %}
+  <p class="error">⚠️ В самом вопросе неточность: {{ review.question_issue }}</p>
+  {% endif %}
+  <h3>Как мог бы ответить сильный кандидат</h3>
+  <p>{{ review.reference }}</p>
+  {% if review.points %}
+  <h3>По пунктам</h3>
+  <ul class="points">
+    {% for p in review.points %}
+    <li>{{ POINT_MARKS[p.status] }} <b>{{ p.text }}</b>{% if p.comment %} — {{ p.comment }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if review.mistakes %}
+  <h3>Неточности в ответе</h3>
+  <ul>
+    {% for m in review.mistakes %}<li>«{{ m.quote }}» → {{ m.correction }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if review.docs %}
+  <p>📚 Почитать:
+    {% for d in review.docs %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a>{{ " · " if not loop.last }}{% endfor %}</p>
+  {% endif %}
+</details>

@@ -122,6 +122,28 @@ class Summary(_Model):
     passed: int
 
 
+class ReviewPoint(_Model):
+    n: int
+    text: str
+    status: Literal["covered", "missed", "doubtful"]
+    comment: str
+
+
+class ReviewMistake(_Model):
+    quote: str
+    correction: str
+
+
+class Review(_Model):
+    """Подробный разбор ответа (010 §4)."""
+
+    reference: str
+    points: list[ReviewPoint]
+    mistakes: list[ReviewMistake]
+    question_issue: str | None
+    docs: list["Doc"]
+
+
 class Forgotten(_Model):
     audio_deleted: int
     transcripts_deleted: int
@@ -236,6 +258,8 @@ class Api(Protocol):
     ) -> Accepted: ...
 
     async def get_answer(self, answer_id: uuid.UUID) -> Answer: ...
+
+    async def review_answer(self, answer_id: uuid.UUID) -> Review: ...
 
     async def forget_audio(self, user_id: uuid.UUID) -> Forgotten: ...
 
@@ -362,6 +386,10 @@ class ApiClient:
 
     async def get_answer(self, answer_id: uuid.UUID) -> Answer:
         return await self._call(Answer, "GET", f"/answers/{answer_id}")
+
+    async def review_answer(self, answer_id: uuid.UUID) -> Review:
+        """Готовый разбор — сразу, новый — вызов модели, ~20–40 с на Маке."""
+        return await self._call(Review, "POST", f"/answers/{answer_id}/review")
 
     async def forget_audio(self, user_id: uuid.UUID) -> Forgotten:
         path = f"/users/{user_id}/data"

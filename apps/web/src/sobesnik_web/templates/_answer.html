@@ -1,4 +1,4 @@
-{# нужны: answer, session_id, position, total, elapsed, slow #}
+{# нужны: answer, session_id, position, total, elapsed, slow; review — готовый разбор или None #}
 <div class="answer"
   {% if not answer.final %}
   hx-get="/answers/{{ answer.id }}/status?position={{ position }}&total={{ total }}"
@@ -37,6 +37,14 @@
   {% if not ev.passed and answer.docs %}
   <p>📚 Почитать:
     {% for d in answer.docs %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a>{{ " · " if not loop.last }}{% endfor %}</p>
+  {% endif %}
+  {% if review %}
+  {% include "_review.html" %}
+  {% else %}
+  <form hx-post="/answers/{{ answer.id }}/review" hx-target="this" hx-swap="outerHTML"
+        data-wait="📖 Готовлю разбор… обычно 20–40 секунд">
+    <button class="ghost">📖 Разобрать подробно</button>
+  </form>
   {% endif %}
   {% endif %}
   {% if answer.transcript %}

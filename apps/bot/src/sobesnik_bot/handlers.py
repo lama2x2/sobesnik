@@ -14,6 +14,7 @@ from sobesnik_bot.render import (
     NewVacancyCb,
     ProgressCb,
     RepeatCb,
+    ReviewCb,
     SkipCb,
     TopicsCb,
     TrainCb,
@@ -208,6 +209,12 @@ def build_router(trainer: Trainer) -> Router:
         await query.answer()
         chat_id, _, _ = _cb_ids(query)
         await trainer.details(chat_id, callback_data.answer_id)
+
+    @router.callback_query(ReviewCb.filter())
+    async def review(query: CallbackQuery, callback_data: ReviewCb) -> None:
+        await query.answer()
+        chat_id, _, _ = _cb_ids(query)
+        await trainer.review(chat_id, callback_data.answer_id)
 
     @router.callback_query(NewVacancyCb.filter())
     async def new_vacancy(query: CallbackQuery) -> None:

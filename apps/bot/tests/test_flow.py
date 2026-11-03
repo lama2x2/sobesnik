@@ -12,9 +12,17 @@ from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendChatAction
 
 from sobesnik_bot import render
 from sobesnik_bot.__main__ import build_dispatcher
-from sobesnik_bot.api import ApiError, ApiUnavailable, LlmStatus
+from sobesnik_bot.api import (
+    ApiError,
+    ApiUnavailable,
+    Doc,
+    LlmStatus,
+    Review,
+    ReviewMistake,
+    ReviewPoint,
+)
 from sobesnik_bot.flow import Trainer, vacancy_source
-from sobesnik_bot.render import DetailsCb, ForgetCb, LevelCb, SkipCb, TrainCb
+from sobesnik_bot.render import DetailsCb, ForgetCb, LevelCb, ReviewCb, SkipCb, TrainCb
 from sobesnik_bot.state import StateStore
 
 from .conftest import USER, Chat_, Clock, FakeApi, FakeSession
@@ -346,6 +354,51 @@ async def test_details_button(user: Chat_, api: FakeApi, tg: FakeSession, traine
     await user.press(DetailsCb(answer_id=answer.id).pack())
     assert tg.last_text().startswith("<b>Почему такие баллы</b>")
     assert "почему depth" in tg.last_text()
+
+
+async def test_review_button(user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer) -> None:
+    await in_training(user, api, tg)
+    await user.send("ответ")
+    answer = api.last_answer()
+    api.evaluate(answer.id)
+    await trainer.on_event(answer.id, "done")
+    evaluation = tg.of(EditMessageText)[-1]
+    assert ReviewCb(answer_id=answer.id).pack() in str(evaluation.reply_markup)
+
+    await user.press(ReviewCb(answer_id=answer.id).pack())
+    assert api.calls[-1] == ("review_answer", {"answer_id": answer.id})
+    text = tg.last_text()
+    assert text.startswith("<b>📖 Разбор</b>")
+    assert "✅ упорядочен по a — верно" in text
+    assert "❌ нужен индекс по b — почему" in text
+    assert "«индекс всегда &lt;быстрее&gt;» → не всегда" in text
+    assert "В самом вопросе" not in text
+    assert text.endswith(
+        '<a href="https://www.postgresql.org/docs/current/indexes.html">Индексы</a>'
+    )
+
+    api.errors["review_answer"] = ApiError(409, "transcript_deleted", "нет")
+    await user.press(ReviewCb(answer_id=answer.id).pack())
+    assert tg.last_text() == render.REVIEW_ERRORS["transcript_deleted"]
+    api.errors["review_answer"] = ApiError(503, "llm_unavailable", "нет")
+    await user.press(ReviewCb(answer_id=answer.id).pack())
+    assert tg.last_text() == render.API_ERRORS["llm_unavailable"]
+
+
+def test_review_text_fits_telegram() -> None:
+    review = Review(
+        reference="эталон " * 300,
+        points=[
+            ReviewPoint(n=n, text="пункт", status="covered", comment="к" * 400) for n in range(1, 7)
+        ],
+        mistakes=[ReviewMistake(quote="ц" * 400, correction="и" * 400) for _ in range(3)],
+        question_issue="вопрос неверен",
+        docs=[Doc(title="Док", url="https://example.org")],
+    )
+    text = render.review_text(review)
+    assert len(text) <= render.REVIEW_MAX_CHARS
+    assert text.endswith('<a href="https://example.org">Док</a>')
+    assert "Как мог бы ответить" in text
 
 
 async def test_forget(user: Chat_, api: FakeApi, tg: FakeSession) -> None:

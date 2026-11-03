@@ -68,3 +68,6 @@ ol.steps li.current a { background: var(--accent); color: var(--accent-text); }
 .voice { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 8px; }
 audio { width: 100%; margin: 8px 0; }
 #flash:empty { display: none; }
+details.review { margin: 12px 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; }
+details.review > summary { cursor: pointer; font-weight: 700; }
+ul.points { padding-left: 0; list-style: none; }
