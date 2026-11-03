@@ -89,7 +89,7 @@ async def test_review(
     assert body["points"] == [
         {"n": 1, "text": key_points[0], "status": "covered", "comment": "комментарий 1"},
         {"n": 2, "text": key_points[1], "status": "missed", "comment": "комментарий 2"},
-        {"n": 3, "text": key_points[2], "status": "doubtful", "comment": "комментарий 3"},
+        {"n": 3, "text": key_points[2], "status": "missed", "comment": "комментарий 3"},
     ]
     assert body["mistakes"] == [
         {"quote": "индекс всегда ускоряет", "correction": "Не всегда: запись медленнее."}
@@ -102,7 +102,7 @@ async def test_review(
 
     request = llm.requests[0]
     assert f"1. [прозвучал в ответе] {key_points[0]}" in request.prompt
-    assert f"2. [не прозвучал в ответе] {key_points[1]}" in request.prompt
+    assert f"2. [не прозвучал в ответе или сказан неверно] {key_points[1]}" in request.prompt
     assert f"<answer>\n{ANSWER}\n</answer>" in request.prompt
     assert (request.temperature, request.seed) == (0.0, 42)
     assert "индекс всегда" not in caplog.text and "Сильный ответ" not in caplog.text

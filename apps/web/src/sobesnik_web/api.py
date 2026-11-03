@@ -162,7 +162,7 @@ class Answer(_Model):
 class ReviewPoint(_Model):
     n: int
     text: str
-    status: Literal["covered", "missed", "doubtful"]
+    status: Literal["covered", "missed"]
     comment: str
 
 

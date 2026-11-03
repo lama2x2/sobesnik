@@ -486,7 +486,7 @@ def details_keyboard(answer_id: uuid.UUID) -> InlineKeyboardMarkup:
 REVIEWING = "📖 Готовлю разбор… обычно 20–40 секунд."
 REVIEW_MAX_CHARS = 4_000
 """Лимит сообщения Telegram — 4 096; блоки, которые не влезли, отбрасываются с конца."""
-POINT_MARKS: dict[str, str] = {"covered": "✅", "missed": "❌", "doubtful": "⚠️"}
+POINT_MARKS: dict[str, str] = {"covered": "✅", "missed": "❌"}
 REVIEW_ERRORS: dict[str, str] = {
     "answer_not_evaluated": "Оценки ещё нет — разбор будет после неё.",
     "transcript_deleted": "Расшифровка этого ответа удалена — разобрать его уже нельзя.",

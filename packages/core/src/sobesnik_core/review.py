@@ -13,13 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from sobesnik_core.evaluation import ANSWER_SOURCES, AnswerKind, format_reference_answer
 from sobesnik_core.prompt import PromptTemplate, RenderedPrompt
 
-PointStatus = Literal["covered", "missed", "doubtful"]
-"""Пункт прозвучал / не прозвучал / оценщик счёл сам пункт фактически неверным (`wrong_points`)."""
+PointStatus = Literal["covered", "missed"]
+"""Пункт прозвучал / не прозвучал или сказан неверно."""
 
 POINT_LABELS: dict[PointStatus, str] = {
     "covered": "прозвучал в ответе",
-    "missed": "не прозвучал в ответе",
-    "doubtful": "оценщик считает сам пункт фактически неверным",
+    "missed": "не прозвучал в ответе или сказан неверно",
 }
 
 REVIEW_MISTAKES_MAX = 3
@@ -136,16 +135,12 @@ def make_review_repair(
 def point_statuses(
     key_points: Sequence[str], missed: Sequence[str], wrong: Sequence[str]
 ) -> list[PointStatus]:
-    """Статусы пунктов по оценке: в ней упущенные и неверные пункты хранятся текстами."""
-    statuses: list[PointStatus] = []
-    for point in key_points:
-        if point in wrong:
-            statuses.append("doubtful")
-        elif point in missed:
-            statuses.append("missed")
-        else:
-            statuses.append("covered")
-    return statuses
+    """Статусы пунктов по оценке: в ней упущенные и неверные пункты хранятся текстами.
+
+    `wrong_points` по рубрике — пункт эталона, который оценщик счёл неверным, но маленькая модель
+    кладёт туда пункты, в которых ошибся кандидат (живая проверка 010). Для разбора оба случая —
+    «не прозвучал или сказан неверно»: комментарий модели объясняет пункт, а не спорит с ним."""
+    return ["missed" if point in missed or point in wrong else "covered" for point in key_points]
 
 
 def format_review_points(key_points: Sequence[str], statuses: Sequence[PointStatus]) -> str:

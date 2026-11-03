@@ -281,7 +281,7 @@ class AnswerOut(BaseModel):
 class ReviewPointOut(BaseModel):
     n: int
     text: str
-    status: Literal["covered", "missed", "doubtful"]
+    status: Literal["covered", "missed"]
     comment: str
 
 

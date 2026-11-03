@@ -74,7 +74,7 @@ def test_empty_question_issue() -> None:
 
 def test_point_statuses_from_evaluation() -> None:
     points = ["первый", "второй", "третий"]
-    assert point_statuses(points, ["второй"], ["третий"]) == ["covered", "missed", "doubtful"]
+    assert point_statuses(points, ["второй"], ["третий"]) == ["covered", "missed", "missed"]
 
 
 def test_prompt_renders_statuses_and_answer() -> None:
@@ -88,7 +88,7 @@ def test_prompt_renders_statuses_and_answer() -> None:
         "voice",
     )
     assert "1. [прозвучал в ответе] упорядочен по a" in rendered.user
-    assert "2. [не прозвучал в ответе] нужен индекс по b" in rendered.user
+    assert "2. [не прозвучал в ответе или сказан неверно] нужен индекс по b" in rendered.user
     assert "<answer>\nтекст  ответа\n</answer>" in rendered.user
     assert "расшифровка устного ответа" in rendered.user
     assert "Совет оценщика." in rendered.user
