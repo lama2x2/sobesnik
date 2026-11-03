@@ -35,10 +35,56 @@ class UserOut(BaseModel):
     created_at: datetime
 
 
-class VacancyCreate(BaseModel):
-    """Ровно одно из полей: text, url, html."""
-
+class LinkCreate(BaseModel):
     user_id: uuid.UUID
+
+
+class LinkOut(BaseModel):
+    """Одноразовая ссылка входа в веб: секрет — в адрес ссылки, код — ввести руками (009 §5.2)."""
+
+    secret: str
+    code: str
+    expires_at: datetime
+
+
+class LinkRedeem(BaseModel):
+    """Ровно одно из полей: secret (из ссылки) или code (с телефона)."""
+
+    secret: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] | None = None
+    code: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
+
+    @model_validator(mode="after")
+    def one_of(self) -> Self:
+        if bool(self.secret) == bool(self.code):
+            raise ValueError("нужно ровно одно из полей: secret или code")
+        return self
+
+
+class TokenOut(BaseModel):
+    token: str
+    user_id: uuid.UUID
+    expires_at: datetime
+
+
+class MeOut(BaseModel):
+    user_id: uuid.UUID
+    telegram: bool
+    local: bool
+
+
+class VacancyBriefOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str
+    level: str
+    created_at: datetime
+
+
+class VacancyCreate(BaseModel):
+    """Ровно одно из полей: text, url, html. `user_id` с токеном пользователя не нужен."""
+
+    user_id: uuid.UUID | None = None
     text: (
         Annotated[
             str,
@@ -105,7 +151,8 @@ class VacancyOut(BaseModel):
 
 
 class SessionCreate(BaseModel):
-    """`{vacancy_id, n, topics?}` — по вакансии; `{mode: "repeat", user_id, n}` (007 §6)."""
+    """`{vacancy_id, n, topics?}` — по вакансии; `{mode: "repeat", user_id, n}` (007 §6);
+    с токеном пользователя `user_id` не нужен (009 §9)."""
 
     mode: Literal["vacancy", "repeat"] = "vacancy"
     vacancy_id: uuid.UUID | None = None
@@ -117,8 +164,8 @@ class SessionCreate(BaseModel):
     def by_mode(self) -> Self:
         if self.mode == "vacancy" and self.vacancy_id is None:
             raise ValueError("для сессии по вакансии нужен vacancy_id")
-        if self.mode == "repeat" and (self.user_id is None or self.topics is not None):
-            raise ValueError("для повторения нужен user_id, а topics не задаются")
+        if self.mode == "repeat" and self.topics is not None:
+            raise ValueError("для повторения topics не задаются")
         return self
 
 

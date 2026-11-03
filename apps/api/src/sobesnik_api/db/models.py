@@ -1,4 +1,4 @@
-"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7, 004 §7, 005 §7, 007 §10."""
+"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7, 004 §7, 005 §7, 007 §10, 009 §9."""
 
 import uuid
 from datetime import datetime
@@ -40,13 +40,19 @@ ANSWER_STATUSES = ("received", "transcribing", "evaluating", "done", "failed", "
 TRANSCRIPT_KINDS = ("asr", "reference")
 EVALUATION_STATUSES = ("done", "failed")
 EVAL_RUN_STATUSES = ("queued", "running", "done", "failed")
+AUTH_TOKEN_KINDS = ("link", "session")
 
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        # локальный пользователь (вход без Telegram, 009 §5.3) — один на инстанс
+        Index("uq_users_local", "local", unique=True, postgresql_where=sql_text("local")),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
+    local: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sql_text("false"))
     settings: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, server_default=sql_text("'{}'::jsonb")
     )
@@ -380,3 +386,24 @@ class TopicProgress(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class AuthToken(Base):
+    """Одноразовая ссылка входа из бота или токен веб-сессии (009 §5, §9). Хранится только хеш."""
+
+    __tablename__ = "auth_token"
+    __table_args__ = (CheckConstraint(_in("kind", AUTH_TOKEN_KINDS), name="kind"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(Text)
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)
+    code_hash: Mapped[str | None] = mapped_column(Text, index=True)
+    """Хеш короткого кода — только у ссылки (вход с телефона, 009 §5.2)."""
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

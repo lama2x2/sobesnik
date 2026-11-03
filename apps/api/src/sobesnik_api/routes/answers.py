@@ -3,9 +3,11 @@ import uuid
 from fastapi import APIRouter, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sobesnik_api.auth import CallerDep
 from sobesnik_api.db.models import Answer, Audio, Evaluation, Transcript
 from sobesnik_api.deps import DB, AppSettings, Queue, Storage
-from sobesnik_api.errors import PayloadTooLargeError
+from sobesnik_api.errors import NotFoundError, PayloadTooLargeError
+from sobesnik_api.routes.sessions import owned_session
 from sobesnik_api.schemas import (
     DOCS_SHOWN,
     AnswerAccepted,
@@ -128,8 +130,14 @@ async def answer_out(db: AsyncSession, answer: Answer, evaluation: Evaluation | 
 
 @router.post("/sessions/{session_id}/questions/{question_id}/answer", status_code=202)
 async def post_answer(
-    session_id: uuid.UUID, question_id: uuid.UUID, body: AnswerCreate, db: DB, queue: Queue
+    session_id: uuid.UUID,
+    question_id: uuid.UUID,
+    body: AnswerCreate,
+    db: DB,
+    queue: Queue,
+    caller: CallerDep,
 ) -> AnswerAccepted:
+    await owned_session(db, caller, session_id)
     answer = await submit_answer(db, queue, session_id, question_id, body.text)
     return AnswerAccepted(answer_id=answer.id, status=answer.status)
 
@@ -157,7 +165,9 @@ async def post_voice_answer(
     queue: Queue,
     storage: Storage,
     settings: AppSettings,
+    caller: CallerDep,
 ) -> AnswerAccepted:
+    await owned_session(db, caller, session_id)
     limits = AudioLimits(
         max_bytes=settings.audio_max_bytes,
         max_seconds=settings.audio_max_seconds,
@@ -169,6 +179,8 @@ async def post_voice_answer(
 
 
 @router.get("/answers/{answer_id}")
-async def read_answer(answer_id: uuid.UUID, db: DB) -> AnswerOut:
+async def read_answer(answer_id: uuid.UUID, db: DB, caller: CallerDep) -> AnswerOut:
     answer = await get_answer(db, answer_id)
+    if not caller.owns(answer.user_id):
+        raise NotFoundError("answer_not_found", "ответ не найден")
     return await answer_out(db, answer, await live_evaluation(db, answer.id))

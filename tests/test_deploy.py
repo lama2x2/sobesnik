@@ -14,7 +14,7 @@ from sobesnik_bot.settings import BotSettings
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_EXAMPLE = ROOT / "deploy" / ".env.example"
-COMPOSE_ONLY = {"API_PORT", "COMPOSE_FILE", "COMPOSE_PROJECT_NAME"}
+COMPOSE_ONLY = {"API_PORT", "WEB_PORT", "COMPOSE_FILE", "COMPOSE_PROJECT_NAME"}
 """Переменные, которые читает сам docker compose, а не код."""
 
 

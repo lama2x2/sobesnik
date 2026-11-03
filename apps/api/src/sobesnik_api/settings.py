@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     api_service_token: SecretStr | None = None
     admin_token: SecretStr | None = None
 
+    # Вход в веб-кабинет (009 §5): кнопка «Войти без Telegram» и срок веб-сессии с последнего захода
+    web_local_login: bool = True
+    web_session_days: int = 30
+
     # События смены статуса ответа для бота (006 §6)
     answer_events_stream: str = "sobesnik:answer-events"
 

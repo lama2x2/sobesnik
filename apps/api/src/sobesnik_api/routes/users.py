@@ -5,6 +5,7 @@ from fastapi import APIRouter, Query, Response
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
+from sobesnik_api.auth import CallerDep
 from sobesnik_api.db.models import TrainingSession, User, Vacancy
 from sobesnik_api.deps import DB, AppSettings, Storage
 from sobesnik_api.errors import NotFoundError
@@ -16,6 +17,7 @@ from sobesnik_api.schemas import (
     ThresholdsOut,
     TopicProgressOut,
     UserOut,
+    VacancyBriefOut,
     docs_out,
 )
 from sobesnik_api.services.progress import forget_rest, user_progress
@@ -27,7 +29,10 @@ router = APIRouter(tags=["users"])
 
 
 @router.put("/users/telegram/{telegram_id}", response_model=UserOut)
-async def upsert_telegram_user(telegram_id: int, db: DB, response: Response) -> User:
+async def upsert_telegram_user(
+    telegram_id: int, db: DB, response: Response, caller: CallerDep
+) -> User:
+    caller.require_service()
     created = await db.scalar(
         insert(User)
         .values(telegram_id=telegram_id)
@@ -43,12 +48,17 @@ async def upsert_telegram_user(telegram_id: int, db: DB, response: Response) -> 
 
 @router.delete("/users/{user_id}/data", response_model_exclude_none=True)
 async def forget_user_data(
-    user_id: uuid.UUID, scope: Literal["audio", "all"], db: DB, storage: Storage
+    user_id: uuid.UUID,
+    scope: Literal["audio", "all"],
+    db: DB,
+    storage: Storage,
+    caller: CallerDep,
 ) -> ForgetOut:
     """`audio` — голосовые и расшифровки (ASR-5, 004 §8.5); `all` — всё о пользователе (007 §7.3).
 
     Сначала удаляется аудио из хранилища: если оно недоступно, в БД ничего не трогается.
     """
+    caller.check_user(user_id)
     audio = await forget_audio(db, storage, user_id)
     out = ForgetOut(
         audio_deleted=audio.audio_deleted, transcripts_deleted=audio.transcripts_deleted
@@ -66,9 +76,11 @@ async def read_progress(
     user_id: uuid.UUID,
     db: DB,
     settings: AppSettings,
+    caller: CallerDep,
     sessions_limit: Annotated[int, Query(ge=0, le=20)] = 5,
 ) -> ProgressOut:
     """Прогресс по темам, слабые темы и последние тренировки (С4, PRG-4, 007 §7.1)."""
+    caller.check_user(user_id)
     if await db.get(User, user_id) is None:
         raise NotFoundError("user_not_found", "пользователь не найден")
     thresholds = settings.progress_thresholds()
@@ -119,3 +131,23 @@ async def read_progress(
         topics=topics,
         sessions=history,
     )
+
+
+@router.get("/users/{user_id}/vacancies")
+async def read_vacancies(
+    user_id: uuid.UUID,
+    db: DB,
+    caller: CallerDep,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> list[VacancyBriefOut]:
+    """Вакансии пользователя, новые сверху (009 §9): веб показывает их на главной."""
+    caller.check_user(user_id)
+    if await db.get(User, user_id) is None:
+        raise NotFoundError("user_not_found", "пользователь не найден")
+    vacancies = await db.scalars(
+        select(Vacancy)
+        .where(Vacancy.user_id == user_id)
+        .order_by(Vacancy.created_at.desc(), Vacancy.id)
+        .limit(limit)
+    )
+    return [VacancyBriefOut.model_validate(v) for v in vacancies]

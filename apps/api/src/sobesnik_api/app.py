@@ -7,12 +7,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI
 
-from sobesnik_api.auth import require_service_token
+from sobesnik_api.auth import get_caller
 from sobesnik_api.db.session import make_engine, make_sessionmaker
 from sobesnik_api.errors import install_error_handlers
 from sobesnik_api.llm import LLMRoles, log_llm_health, make_roles
 from sobesnik_api.queue import ArqQueue, TaskQueue
-from sobesnik_api.routes import admin, answers, health, sessions, users, vacancies
+from sobesnik_api.routes import admin, answers, auth, health, sessions, users, vacancies
 from sobesnik_api.settings import Settings
 from sobesnik_api.sources.fetch import PageFetcher, parse_networks
 from sobesnik_api.topics_sync import sync_topics
@@ -74,8 +74,10 @@ def create_app(
     api = APIRouter(prefix="/api/v1")
     api.include_router(health.router)
     api.include_router(admin.router)  # свой админ-токен вместо сервисного
-    client = APIRouter(dependencies=[Depends(require_service_token)])
-    for module in (users, vacancies, sessions, answers):
+    api.include_router(auth.public_router)  # вход по ссылке: секрет и есть доступ
+    # сервисный токен или токен пользователя (009 §5.1)
+    client = APIRouter(dependencies=[Depends(get_caller)])
+    for module in (users, vacancies, sessions, answers, auth):
         client.include_router(module.router)
     api.include_router(client)
     app.include_router(api)

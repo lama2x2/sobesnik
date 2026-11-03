@@ -136,7 +136,7 @@ async def create_vacancy(
     *,
     max_retries: int = 2,
 ) -> Vacancy:
-    if await db.get(User, body.user_id) is None:
+    if body.user_id is None or await db.get(User, body.user_id) is None:
         raise NotFoundError("user_not_found", "пользователь не найден")
     source = await resolve_text(body, fetcher)
     parsed = await parse_vacancy(llm, source.text, max_retries=max_retries)

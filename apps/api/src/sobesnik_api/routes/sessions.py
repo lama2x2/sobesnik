@@ -4,8 +4,11 @@ from statistics import mean
 from fastapi import APIRouter
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sobesnik_api.auth import Caller, CallerDep
 from sobesnik_api.db.models import TrainingSession
 from sobesnik_api.deps import DB, LLM, AppSettings
+from sobesnik_api.errors import NotFoundError, UnprocessableError
+from sobesnik_api.routes.vacancies import owned_vacancy
 from sobesnik_api.schemas import (
     DOCS_SHOWN,
     SessionAnswerOut,
@@ -87,20 +90,33 @@ async def summary_out(db: AsyncSession, session: TrainingSession) -> SessionSumm
     )
 
 
+async def owned_session(db: AsyncSession, caller: Caller, session_id: uuid.UUID) -> TrainingSession:
+    """Сессия, если она своя; чужая — `404`, как несуществующая (009 §5.1)."""
+    session = await get_session(db, session_id)
+    if not caller.owns(session.user_id):
+        raise NotFoundError("session_not_found", "сессия не найдена")
+    return session
+
+
 @router.post("/sessions", status_code=201)
-async def post_session(body: SessionCreate, db: DB, llm: LLM, settings: AppSettings) -> SessionOut:
+async def post_session(
+    body: SessionCreate, db: DB, llm: LLM, settings: AppSettings, caller: CallerDep
+) -> SessionOut:
     if body.mode == "repeat":
-        assert body.user_id is not None
+        user_id = caller.user_for(body.user_id)
+        if user_id is None:
+            raise UnprocessableError("user_required", "для повторения нужен user_id")
         session = await create_repeat_session(
             db,
             llm,
-            body.user_id,
+            user_id,
             body.n,
             settings.progress_thresholds(),
             max_retries=settings.llm_max_retries,
         )
     else:
         assert body.vacancy_id is not None
+        await owned_vacancy(db, caller, body.vacancy_id)
         session = await create_session(
             db,
             llm,
@@ -113,10 +129,11 @@ async def post_session(body: SessionCreate, db: DB, llm: LLM, settings: AppSetti
 
 
 @router.get("/sessions/{session_id}")
-async def read_session(session_id: uuid.UUID, db: DB) -> SessionOut:
-    return await session_out(db, await get_session(db, session_id))
+async def read_session(session_id: uuid.UUID, db: DB, caller: CallerDep) -> SessionOut:
+    return await session_out(db, await owned_session(db, caller, session_id))
 
 
 @router.post("/sessions/{session_id}/finish")
-async def post_finish(session_id: uuid.UUID, db: DB) -> SessionSummaryOut:
+async def post_finish(session_id: uuid.UUID, db: DB, caller: CallerDep) -> SessionSummaryOut:
+    await owned_session(db, caller, session_id)
     return await summary_out(db, await finish_session(db, session_id))

@@ -16,6 +16,8 @@ class BotSettings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     answer_events_stream: str = "sobesnik:answer-events"
     bot_questions: int = 5
+    web_public_url: str = "http://127.0.0.1:8080"
+    """Адрес веб-кабинета в ссылке входа по /web (009 §5.2)."""
     log_level: str = "INFO"
 
     @field_validator("telegram_bot_token", "api_service_token", mode="before")
