@@ -354,6 +354,7 @@ async def test_text_answer_status_then_result(browser: AsyncClient, fake: Any) -
     assert fake.calls[-2] == ("answer_text", (question.id, "Индекс ускоряет поиск."))
     page = text_of(response.text)
     assert "Принято" in page and "Оцениваю ответ" in page
+    assert "Пропустить вопрос" not in page  # ответ дан — пропускать нечего
     answer_id = question.answer.id
     poll = f'hx-get="/answers/{answer_id}/status?position=1&total=2"'
     assert poll in response.text and 'hx-trigger="load delay:2s"' in response.text
@@ -435,6 +436,7 @@ async def test_failed_answer_offers_retry(browser: AsyncClient, fake: Any) -> No
     assert "Не расслышал речь" in page
     assert "hx-get" not in response.text
     assert "Отправить ответ" in page and f"/questions/{q.id}/voice" in response.text
+    assert "Пропустить вопрос" in page
 
 
 async def test_reload_keeps_status(browser: AsyncClient, fake: Any) -> None:
@@ -586,6 +588,7 @@ async def test_pages_load_nothing_from_internet(browser: AsyncClient, fake: Any)
         html = (await browser.get(path)).text
         for src in re.findall(r'<(?:script|link)[^>]+(?:src|href)="([^"]+)"', html):
             assert src.startswith("/static/"), (path, src)
+            assert "?v=" in src, (path, src)  # новая статика после пересборки, а не из кэша
     for name in ("htmx.min.js", "app.js", "style.css"):
         assert (await browser.get(f"/static/{name}")).status_code == 200
 

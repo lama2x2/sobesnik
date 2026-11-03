@@ -33,9 +33,6 @@
     {% endif %}
   </div>
 </section>
-{% if not answer or answer.status == "failed" %}
-<p><a href="/sessions/{{ session.id }}?q={{ position + 1 }}&skipped={{ position }}">Пропустить вопрос →</a></p>
-{% endif %}
 {% elif position > total %}
 <section class="card">
   <h2>Вопросы закончились</h2>

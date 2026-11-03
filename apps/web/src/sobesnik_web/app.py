@@ -1,5 +1,6 @@
 """Сборка веб-кабинета (009 §4). Без побочных эффектов при импорте — его используют тесты."""
 
+import hashlib
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -24,10 +25,19 @@ HERE = Path(__file__).resolve().parent
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
+def asset_version() -> str:
+    """Хэш статики для `?v=` в ссылках: после пересборки браузер не берёт старую статику из кэша."""
+    digest = hashlib.sha256()
+    for path in sorted((HERE / "static").iterdir()):
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:10]
+
+
 def make_templates() -> Jinja2Templates:
     templates = Jinja2Templates(directory=HERE / "templates")
     env = templates.env
     env.globals.update(
+        ASSET_V=asset_version(),
         band=render.band,
         approx=render.approx,
         dots=render.dots,
