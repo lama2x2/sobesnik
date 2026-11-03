@@ -37,13 +37,23 @@ def test_null_seed() -> None:
     assert parse_prompt("x", 1, RAW.replace(b"seed: 7", b"seed: null")).seed is None
 
 
-@pytest.mark.parametrize("name", ["parse_vacancy", "generate_questions", "evaluate_answer"])
+@pytest.mark.parametrize(
+    "name", ["parse_vacancy", "generate_questions", "evaluate_answer", "review_answer"]
+)
 def test_package_prompts_load_latest(name: str) -> None:
     versions = prompt_versions(name)
     assert versions
     prompt = load_prompt(name)
     assert prompt.version.startswith(f"v{versions[-1]}#")
     assert load_prompt(name, versions[-1]) == prompt
+
+
+def test_generation_v2_warns_about_false_premise() -> None:
+    """010 §7: новые вопросы — по v2, где вопрос не строится на неверном условии."""
+    prompt = load_prompt("generate_questions")
+    assert prompt.version.startswith("v2#")
+    assert "не утверждай в вопросе фактов" in prompt.system
+    assert "Должность: $title" in prompt.user
 
 
 def test_unknown_prompt() -> None:
