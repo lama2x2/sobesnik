@@ -59,7 +59,12 @@ docs            архитектура, ADR, спецификации (docs/spec
 Всё запускается через Docker Compose — на машине, кроме Docker, ничего не ставится.
 Python-зависимости и воркспейс монорепо — через **uv** (один `uv.lock` на весь репозиторий).
 
-Первый запуск: `cp deploy/.env.example .env` (необязательно) и `ollama pull qwen3.5:4b` на хосте.
+Первый запуск: `ollama pull qwen3.5:4b` на хосте, `cp deploy/.env.example .env` и токен бота в
+`TELEGRAM_BOT_TOKEN` (README). Профили (008 §4): `mac` — по умолчанию; `cloud` — `LLM_*` в `.env`;
+`gpu` — `COMPOSE_FILE=compose.yaml:deploy/compose.gpu.yaml` в `.env` (на GPU не проверен). Порт API —
+`127.0.0.1:${API_PORT:-8000}`. Вторая копия на той же машине (проверка чистой установки) —
+`COMPOSE_PROJECT_NAME` и `API_PORT` в её `.env`: свои контейнеры, тома и порт; бот с тем же токеном
+работает только один. Тест `tests/test_deploy.py` сверяет `deploy/.env.example` с настройками кода.
 
 ```bash
 docker compose up -d --build                       # поднять всё
@@ -73,6 +78,7 @@ docker compose run --rm tools uv run pytest -m network # живая загруз
 docker compose run --rm api uv run alembic upgrade head
 docker compose logs -f worker                      # воркер оценки (arq)
 docker compose logs -f bot                         # Telegram-бот (нужен TELEGRAM_BOT_TOKEN в .env)
+curl -s localhost:8000/api/v1/health/llm | jq     # готова ли модель; hint — что сделать
 docker compose run --rm tools uv run sobesnik-cli eval-run create --name NAME --model MODEL --wait
 docker compose run --rm tools uv run sobesnik-cli export --live -o research/data/eval.csv
 docker compose run --rm tools uv run sobesnik-cli progress rebuild  # пересчитать прогресс по темам из оценок

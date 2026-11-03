@@ -69,6 +69,10 @@ class HumanErrorsFilter(logging.Filter):
         self.last: dict[str, float] = {}
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if record.getMessage().startswith("Sleep for "):
+            # «Sleep for N seconds and try again» после каждой неудачи: понятная строка уже была
+            now = self.clock()
+            return not any(now - t < self.every_s for t in self.last.values())
         if not record.getMessage().startswith("Failed to fetch updates"):
             return True
         kind = next((k for k in HUMAN_ERRORS if k in record.getMessage()), None)

@@ -192,6 +192,10 @@ def test_human_errors_filter() -> None:
     assert filt.filter(fetch_failed("TelegramNetworkError"))  # другой вид — своё окно
     now[0] = 61
     assert filt.filter(fetch_failed("TelegramConflictError"))
+    sleep = logging.makeLogRecord({"msg": "Sleep for 2.5 seconds and try again... (tryings = 3)"})
+    assert not filt.filter(sleep)  # повтор после понятной строки — шум
+    now[0] = 200
+    assert filt.filter(sleep)  # давно не было сбоев — пусть видно
     other = logging.makeLogRecord({"msg": "Failed to fetch updates - ValueError: x"})
     assert filt.filter(other)
     assert filt.filter(logging.makeLogRecord({"msg": "bot started"}))
