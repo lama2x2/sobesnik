@@ -165,6 +165,15 @@ class TopicProgress(_Model):
     last_score: int | None
     avg_last3: float | None
     docs: list[Doc]
+    due: bool = True
+    due_in: str = "сейчас"
+    """Срок повторения SM-2 (011 §5): «сейчас», «через 5 ч», «через сутки»…"""
+
+
+class NextDue(_Model):
+    slug: str
+    title: str
+    due_in: str
 
 
 class SessionHistory(_Model):
@@ -180,6 +189,9 @@ class SessionHistory(_Model):
 class Progress(_Model):
     topics: list[TopicProgress]
     sessions: list[SessionHistory]
+    due_count: int = 0
+    next_due: NextDue | None = None
+    """Ближайший срок, если сейчас повторять нечего."""
 
 
 class WebLink(_Model):
@@ -247,7 +259,7 @@ class Api(Protocol):
     ) -> Session: ...
 
     async def create_repeat(
-        self, user_id: uuid.UUID, n: int, *, difficulty: Difficulty = "same"
+        self, user_id: uuid.UUID, n: int, *, difficulty: Difficulty = "same", force: bool = False
     ) -> Session: ...
 
     async def get_progress(self, user_id: uuid.UUID) -> Progress: ...
@@ -377,11 +389,13 @@ class ApiClient:
         return await self._call(Session, "POST", "/sessions", json=body)
 
     async def create_repeat(
-        self, user_id: uuid.UUID, n: int, *, difficulty: Difficulty = "same"
+        self, user_id: uuid.UUID, n: int, *, difficulty: Difficulty = "same", force: bool = False
     ) -> Session:
         body: dict[str, Any] = {"mode": "repeat", "user_id": str(user_id), "n": n}
         if difficulty != "same":
             body["difficulty"] = difficulty
+        if force:
+            body["force"] = True
         return await self._call(Session, "POST", "/sessions", json=body)
 
     async def get_progress(self, user_id: uuid.UUID) -> Progress:

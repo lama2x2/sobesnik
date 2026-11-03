@@ -244,10 +244,10 @@ def build_router(trainer: Trainer) -> Router:
         await trainer.progress(chat_id, telegram_id)
 
     @router.callback_query(RepeatCb.filter())
-    async def repeat_button(query: CallbackQuery) -> None:
+    async def repeat_button(query: CallbackQuery, callback_data: RepeatCb) -> None:
         await query.answer()
         chat_id, _, telegram_id = _cb_ids(query)
-        await trainer.repeat(chat_id, telegram_id)
+        await trainer.repeat(chat_id, telegram_id, force=callback_data.force)
 
     @router.callback_query(TopicsCb.filter())
     async def topics(query: CallbackQuery, callback_data: TopicsCb) -> None:

@@ -5,6 +5,7 @@ import uuid
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -267,15 +268,22 @@ async def create_repeat_session(
     thresholds: Thresholds,
     *,
     difficulty: Difficulty = "same",
+    force: bool = False,
+    now: datetime | None = None,
     max_retries: int = 2,
 ) -> TrainingSession:
-    """Повторение (PRG-3): по одному новому вопросу на слабую тему, тот же промпт (007 §6.2);
-    `difficulty` сдвигает уровень последней вакансии (010 §5.2)."""
+    """Повторение (PRG-3): по одному новому вопросу на тему со сроком SM-2 (011 §5), тот же
+    промпт (007 §6.2); `difficulty` сдвигает уровень последней вакансии (010 §5.2).
+
+    Сроков нет — `409 nothing_due`, с `force` — темы с ближайшим сроком."""
     if await db.get(User, user_id) is None:
         raise NotFoundError("user_not_found", "пользователь не найден")
-    topics = repeat_topics(await user_progress(db, user_id), thresholds, n)
+    progress = await user_progress(db, user_id)
+    if not progress:
+        raise ConflictError("nothing_to_repeat", "тем с оценками нет — повторять нечего")
+    topics = repeat_topics(progress, thresholds, now or datetime.now(UTC), n, force=force)
     if not topics:
-        raise ConflictError("nothing_to_repeat", "слабых тем нет — повторять нечего")
+        raise ConflictError("nothing_due", "сроки повторения ещё не подошли")
 
     asked = await _last_questions_by_topic(db, user_id, topics)
     slots: list[_RepeatSlot] = []

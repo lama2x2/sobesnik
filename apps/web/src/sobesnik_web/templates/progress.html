@@ -10,7 +10,7 @@
     <h2>🔴 Слабые темы</h2>
     <ul>
     {% for t in groups.weak %}
-      <li>{{ t.title }} — {{ topic_score(t) }} · {{ attempts_word(t.attempts) }}
+      <li>{{ t.title }} — {{ topic_score(t) }} · {{ attempts_word(t.attempts) }} · 🔁 {{ t.due_in }}
         {% if t.docs %}<br>📚 {% for d in t.docs %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a>{{ " · " if not loop.last }}{% endfor %}{% endif %}</li>
     {% endfor %}
     </ul>
@@ -21,7 +21,7 @@
     <h2>⚪ Мало данных</h2>
     <ul>
     {% for t in groups.few %}
-      <li>{{ t.title }} — {{ topic_score(t) }} · {{ attempts_word(t.attempts) }}{% if t.low %}, похоже, стоит повторить{% endif %}</li>
+      <li>{{ t.title }} — {{ topic_score(t) }} · {{ attempts_word(t.attempts) }}{% if t.low %}, похоже, стоит повторить{% endif %} · 🔁 {{ t.due_in }}</li>
     {% endfor %}
     </ul>
   </section>
@@ -29,15 +29,24 @@
   {% if groups.ok %}
   <section class="card">
     <h2>🟢 В порядке</h2>
-    <ul>{% for t in groups.ok %}<li>{{ t.title }} — {{ topic_score(t) }} · {{ attempts_word(t.attempts) }}</li>{% endfor %}</ul>
+    <ul>{% for t in groups.ok %}<li>{{ t.title }} — {{ topic_score(t) }} · {{ attempts_word(t.attempts) }} · 🔁 {{ t.due_in }}</li>{% endfor %}</ul>
   </section>
   {% endif %}
-  {% if can_repeat %}
-  <form hx-post="/repeat" class="row" data-wait="🧩 Готовлю вопросы по слабым темам… обычно около 40 секунд">
+  {% if progress.due_count or progress.next_due %}
+  {% if not progress.due_count %}
+  <p>Сегодня повторять нечего 🎉 Ближайшее: «{{ progress.next_due.title }}» — {{ progress.next_due.due_in }}.
+    Можно повторить и сейчас.</p>
+  {% endif %}
+  <form hx-post="/repeat" class="row" data-wait="🧩 Готовлю вопросы для повторения… обычно около 40 секунд">
     <label>Вопросов <input type="number" name="n" value="{{ QUESTIONS_DEFAULT }}" min="{{ QUESTIONS_MIN }}"
            max="{{ QUESTIONS_MAX }}" class="narrow"></label>
     {% include "_difficulty.html" %}
-    <button>🔁 Повторить слабые темы</button>
+    {% if progress.due_count %}
+    <button>🔁 Повторить: тем пора — {{ progress.due_count }}</button>
+    {% else %}
+    <input type="hidden" name="force" value="true">
+    <button>🔁 Всё равно повторить</button>
+    {% endif %}
   </form>
   {% endif %}
   <p class="muted">{{ PROGRESS_NOTE }}</p>

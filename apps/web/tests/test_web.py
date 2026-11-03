@@ -586,7 +586,12 @@ async def test_api_down_page(browser: AsyncClient, fake: Any) -> None:
 
 
 def topic(
-    slug: str, status: str, avg: float | None, attempts: int, low: bool = False
+    slug: str,
+    status: str,
+    avg: float | None,
+    attempts: int,
+    low: bool = False,
+    due_in: str = "сейчас",
 ) -> dict[str, Any]:
     return {
         "slug": slug,
@@ -597,6 +602,8 @@ def topic(
         "last_score": 50,
         "avg_last3": avg,
         "docs": [{"title": f"Док {slug}", "url": "https://example.org"}],
+        "due": due_in == "сейчас",
+        "due_in": due_in,
     }
 
 
@@ -606,23 +613,44 @@ async def test_progress_page(browser: AsyncClient, fake: Any) -> None:
             "topics": [
                 topic("db.indexes", "weak", 42.3, 3),
                 topic("python.gil", "few", 45, 1, low=True),
-                topic("http.rest", "ok", 81, 2),
+                topic("http.rest", "ok", 81, 2, due_in="через 6 дн."),
             ],
             "sessions": [],
+            "due_count": 2,
         }
     )
     page = text_of((await browser.get("/progress")).text)
-    assert "Слабые темы" in page and "DB.INDEXES — ≈ 40 · 3 попытки" in page
+    assert "Слабые темы" in page and "DB.INDEXES — ≈ 40 · 3 попытки · 🔁 сейчас" in page
     assert "Док db.indexes" in page
-    assert "похоже, стоит повторить" in page
-    assert "HTTP.REST — ≈ 80 · 2 попытки" in page
-    assert "Повторить слабые темы" in page
+    assert "похоже, стоит повторить · 🔁 сейчас" in page
+    assert "HTTP.REST — ≈ 80 · 2 попытки · 🔁 через 6 дн." in page
+    assert "Повторить: тем пора — 2" in page
+    assert "Всё равно повторить" not in page
+
+
+async def test_progress_nothing_due(browser: AsyncClient, fake: Any) -> None:
+    """Сроки не подошли — ближайший срок и «Всё равно повторить» (011 §5.2, решение 1)."""
+    fake.progress = Progress.model_validate(
+        {
+            "topics": [topic("http.rest", "ok", 81, 2, due_in="через сутки")],
+            "sessions": [],
+            "next_due": {"slug": "http.rest", "title": "HTTP.REST", "due_in": "через сутки"},
+        }
+    )
+    response = await browser.get("/progress")
+    page = text_of(response.text)
+    assert "Сегодня повторять нечего 🎉 Ближайшее: «HTTP.REST» — через сутки." in page
+    assert "Всё равно повторить" in page
+    assert 'name="force" value="true"' in response.text
+
+    await browser.post("/repeat", data={"n": "3", "force": "true"}, headers=HX)
+    assert fake.calls[-1] == ("create_repeat", (3, "same", "force"))
 
 
 async def test_progress_empty(browser: AsyncClient) -> None:
     page = text_of((await browser.get("/progress")).text)
     assert "Пока нечего показать" in page
-    assert "Повторить слабые темы" not in page
+    assert "Повторить" not in page
 
 
 async def test_repeat(browser: AsyncClient, fake: Any) -> None:
@@ -636,7 +664,10 @@ async def test_repeat(browser: AsyncClient, fake: Any) -> None:
 async def test_nothing_to_repeat(browser: AsyncClient, fake: Any) -> None:
     fake.fail["create_repeat"] = ApiError(409, "nothing_to_repeat", "нечего")
     response = await browser.post("/repeat", headers=HX)
-    assert "Слабых тем нет" in response.text
+    assert "Повторять пока нечего" in response.text
+    fake.fail["create_repeat"] = ApiError(409, "nothing_due", "рано")
+    response = await browser.post("/repeat", headers=HX)
+    assert "Сегодня повторять нечего" in response.text
 
 
 @pytest.mark.parametrize(

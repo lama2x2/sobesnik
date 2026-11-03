@@ -193,8 +193,13 @@ class UserApi:
         self.fake._check("create_session", vacancy_id, n, topics, required_only, difficulty)
         return self.fake.session
 
-    async def create_repeat(self, n: int, difficulty: Difficulty = "same") -> Session:
-        self.fake._check("create_repeat", n, difficulty)
+    async def create_repeat(
+        self, n: int, difficulty: Difficulty = "same", *, force: bool = False
+    ) -> Session:
+        if force:
+            self.fake._check("create_repeat", n, difficulty, "force")
+        else:
+            self.fake._check("create_repeat", n, difficulty)
         return self.fake.session
 
     async def get_session(self, session_id: uuid.UUID) -> Session:

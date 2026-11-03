@@ -558,8 +558,11 @@ class Trainer:
         )
         await self._ask_next(chat_id, telegram_id, state, session)
 
-    async def repeat(self, chat_id: int, telegram_id: int, n: int | None = None) -> None:
-        """Повторение слабых тем (С5, 007 §8.2)."""
+    async def repeat(
+        self, chat_id: int, telegram_id: int, n: int | None = None, *, force: bool = False
+    ) -> None:
+        """Повторение тем, у которых подошёл срок SM-2 (С5, 007 §8.2, 011 §5). Сроков нет —
+        ближайший срок и кнопка «Всё равно повторить» (`force`), без ожидания генерации."""
         async with self._exclusive(chat_id, telegram_id) as ok:
             if not ok:
                 return
@@ -568,13 +571,27 @@ class Trainer:
                 return
             user_id = state.user_id
             assert user_id is not None
+            if not force:
+                try:
+                    progress = await self.api.get_progress(user_id)
+                except ApiError:
+                    progress = None  # спросим API напрямую
+                if progress is not None and not progress.due_count:
+                    markup = render.repeat_now_keyboard() if progress.next_due else None
+                    await self._send(chat_id, render.nothing_due_text(progress), markup)
+                    return
             difficulty = state.difficulty
             await self._open_session(
                 chat_id,
                 telegram_id,
                 render.PREPARING_REPEAT,
-                lambda: self.api.create_repeat(user_id, n or self.questions, difficulty=difficulty),
-                {"nothing_to_repeat": render.NOTHING_TO_REPEAT},
+                lambda: self.api.create_repeat(
+                    user_id, n or self.questions, difficulty=difficulty, force=force
+                ),
+                {
+                    "nothing_to_repeat": render.NOTHING_TO_REPEAT,
+                    "nothing_due": render.NOTHING_DUE,
+                },
             )
 
     async def _resume(self, chat_id: int, telegram_id: int, state: UserState) -> bool:

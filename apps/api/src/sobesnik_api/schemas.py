@@ -163,6 +163,8 @@ class SessionCreate(BaseModel):
     """Только обязательные требования вакансии (010 §5)."""
     difficulty: Difficulty = "same"
     """Сдвиг уровня в промпте генерации на шаг: проще / как в вакансии / сложнее."""
+    force: bool = False
+    """Повторение, когда сроки SM-2 не подошли: взять темы с ближайшим сроком (011 §5.4)."""
 
     @model_validator(mode="after")
     def by_mode(self) -> Self:
@@ -172,6 +174,8 @@ class SessionCreate(BaseModel):
             raise ValueError("для повторения topics не задаются")
         if self.mode == "repeat" and self.required_only:
             raise ValueError("для повторения required_only не задаётся")
+        if self.mode == "vacancy" and self.force:
+            raise ValueError("force — только для повторения")
         return self
 
 
@@ -348,6 +352,19 @@ class TopicProgressOut(BaseModel):
     last_score: int | None
     avg_last3: float | None
     docs: list[TopicDocOut]
+    due: bool = True
+    """Срок повторения SM-2 подошёл — тему возьмёт `/repeat` (011 §5)."""
+    due_at: datetime | None = None
+    due_in: str = "сейчас"
+    """Когда повторить: «сейчас», «через 5 ч», «через сутки», «через 6 дн.» — без часового пояса."""
+    interval_days: int | None = None
+
+
+class NextDueOut(BaseModel):
+    slug: str
+    title: str
+    due_at: datetime
+    due_in: str
 
 
 class SessionHistoryOut(BaseModel):
@@ -367,6 +384,10 @@ class ProgressOut(BaseModel):
     thresholds: ThresholdsOut
     topics: list[TopicProgressOut]
     sessions: list[SessionHistoryOut]
+    due_count: int = 0
+    """Сколько тем `/repeat` возьмёт сейчас."""
+    next_due: NextDueOut | None = None
+    """Ближайший срок, если сейчас повторять нечего (011 §5.2)."""
 
 
 class SummaryQuestionOut(BaseModel):

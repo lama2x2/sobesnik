@@ -407,7 +407,6 @@ async def progress_page(request: Request, user: User) -> HTMLResponse:
         "me": user.me,
         "progress": progress,
         "groups": groups,
-        "can_repeat": any(t.status == "weak" or t.low for t in progress.topics),
     }
     return page(request, "progress.html", context)
 
@@ -420,9 +419,11 @@ async def repeat(
         render.QUESTIONS_DEFAULT
     ),
     difficulty: Annotated[Difficulty, Form()] = "same",
+    force: Annotated[bool, Form()] = False,
 ) -> Response:
-    """Новые вопросы по слабым темам (С5, PRG-3) — около 40 с."""
-    session = await user.api.create_repeat(n, difficulty)
+    """Новые вопросы по темам, у которых подошёл срок SM-2 (С5, PRG-3, 011 §5) — около 40 с;
+    `force` — сроки не подошли, темы с ближайшим сроком."""
+    session = await user.api.create_repeat(n, difficulty, force=force)
     return go(request, f"/sessions/{session.id}")
 
 

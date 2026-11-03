@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Response
@@ -12,6 +13,7 @@ from sobesnik_api.errors import NotFoundError
 from sobesnik_api.routes.sessions import summary_out
 from sobesnik_api.schemas import (
     ForgetOut,
+    NextDueOut,
     ProgressOut,
     SessionHistoryOut,
     ThresholdsOut,
@@ -22,7 +24,8 @@ from sobesnik_api.schemas import (
 )
 from sobesnik_api.services.progress import forget_rest, user_progress
 from sobesnik_api.services.voice import forget_audio
-from sobesnik_core.progress import is_low, sort_key, topic_status
+from sobesnik_core.progress import TopicStats, is_low, next_due, sort_key, topic_status
+from sobesnik_core.repetition import due_in
 from sobesnik_core.topics import topic_title
 
 router = APIRouter(tags=["users"])
@@ -87,6 +90,7 @@ async def read_progress(
         raise NotFoundError("user_not_found", "пользователь не найден")
     thresholds = settings.progress_thresholds()
     progress = await user_progress(db, user_id)
+    now = datetime.now(UTC)
     topics = [
         TopicProgressOut(
             slug=slug,
@@ -97,6 +101,10 @@ async def read_progress(
             last_score=stats.last_score,
             avg_last3=round(stats.avg_last3, 1) if stats.avg_last3 is not None else None,
             docs=docs_out(slug),
+            due=stats.due(now),
+            due_at=stats.schedule.due_at if stats.schedule else None,
+            due_in=due_in(stats.schedule.due_at, now) if stats.schedule else "сейчас",
+            interval_days=stats.schedule.interval_days if stats.schedule else None,
         )
         for slug, stats in sorted(
             progress.items(), key=lambda item: (*sort_key(item[1], thresholds), item[0])
@@ -133,6 +141,18 @@ async def read_progress(
         ),
         topics=topics,
         sessions=history,
+        due_count=sum(t.due for t in topics),
+        next_due=_next_due(progress, now) if not any(t.due for t in topics) else None,
+    )
+
+
+def _next_due(progress: dict[str, TopicStats], now: datetime) -> NextDueOut | None:
+    nearest = next_due(progress)
+    if nearest is None:
+        return None
+    slug, due_at = nearest
+    return NextDueOut(
+        slug=slug, title=topic_title(slug) or slug, due_at=due_at, due_in=due_in(due_at, now)
     )
 
 

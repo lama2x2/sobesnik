@@ -9,6 +9,7 @@ from sobesnik_bot import render
 from sobesnik_bot.api import (
     ApiError,
     Doc,
+    NextDue,
     Progress,
     Requirement,
     SessionHistory,
@@ -35,7 +36,15 @@ DOCS = [
 ]
 
 
-def tp(slug: str, status: str, avg: float, attempts: int, *, low: bool = False) -> TopicProgress:
+def tp(
+    slug: str,
+    status: str,
+    avg: float,
+    attempts: int,
+    *,
+    low: bool = False,
+    due_in: str = "сейчас",
+) -> TopicProgress:
     return TopicProgress(
         slug=slug,
         title={"db.indexes": "Индексы и планы запросов", "db.sql": "SQL: JOIN, агрегация"}.get(
@@ -47,6 +56,8 @@ def tp(slug: str, status: str, avg: float, attempts: int, *, low: bool = False) 
         last_score=int(avg),
         avg_last3=avg,
         docs=DOCS if slug == "db.indexes" else [],
+        due=due_in == "сейчас",
+        due_in=due_in,
     )
 
 
@@ -54,9 +65,10 @@ MIXED = Progress(
     topics=[
         tp("db.indexes", "weak", 46.7, 3),
         tp("python.asyncio", "few", 40, 1, low=True),
-        tp("web.http", "few", 75, 1),
-        tp("db.sql", "ok", 81, 4),
+        tp("web.http", "few", 75, 1, due_in="через сутки"),
+        tp("db.sql", "ok", 81, 4, due_in="через 6 дн."),
     ],
+    due_count=2,
     sessions=[
         SessionHistory(
             created_at=datetime(2026, 11, 2, tzinfo=UTC),
@@ -91,18 +103,20 @@ async def test_progress_mixed(user: Chat_, api: FakeApi, tg: FakeSession) -> Non
     api.progress = MIXED
     await user.send("/progress")
     text = tg.last_text()
-    assert "🔴 <b>Слабые темы</b>\n• Индексы и планы запросов — ≈ 45 · 3 попытки" in text
+    weak = "🔴 <b>Слабые темы</b>\n• Индексы и планы запросов — ≈ 45 · 3 попытки · 🔁 сейчас"
+    assert weak in text
     # не больше двух ссылок, одной строкой
     assert text.count("<a href=") == 2
     assert "Use The Index" not in text
-    assert "• python.asyncio — ≈ 40 · 1 попытка, похоже стоит повторить" in text
-    assert "• web.http — ≈ 75 · 1 попытка\n" in text
-    assert "🟢 <b>В порядке:</b> SQL ≈ 80 (4)" in text
+    assert "• python.asyncio — ≈ 40 · 1 попытка, похоже стоит повторить · 🔁 сейчас" in text
+    assert "• web.http — ≈ 75 · 1 попытка · 🔁 через сутки\n" in text
+    assert "🟢 <b>В порядке:</b> SQL ≈ 80 (4, 🔁 через 6 дн.)" in text
     assert "02.11 · Python-разработчик · 3 из 5 пройдено · ≈ 60" in text
     assert "01.11 · Повторение · 2 из 2 пройдено · ≈ 80" in text
     assert text.endswith(render.PROGRESS_NOTE)
     markup = tg.of(SendMessage)[-1].reply_markup
     assert markup.inline_keyboard[0][0].callback_data == RepeatCb().pack()
+    assert markup.inline_keyboard[0][0].text == "🔁 Повторить: тем пора — 2"
 
 
 def test_attempts_word() -> None:
@@ -126,6 +140,7 @@ def test_progress_many_topics_cut() -> None:
 
 async def test_repeat(user: Chat_, api: FakeApi, tg: FakeSession, store: StateStore) -> None:
     await user.send("Ищем Python-разработчика")
+    api.progress = MIXED
     await user.send("/repeat")
     assert api.calls[-1] == ("create_repeat", {"user_id": api.user_id, "n": 3})
     assert tg.of(SendMessage)[-2].text == render.PREPARING_REPEAT
@@ -139,9 +154,39 @@ async def test_repeat(user: Chat_, api: FakeApi, tg: FakeSession, store: StateSt
 
 
 async def test_repeat_nothing(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
-    api.errors["create_repeat"] = ApiError(409, "nothing_to_repeat", "нет")
     await user.press(RepeatCb().pack())
     assert tg.last_text() == render.NOTHING_TO_REPEAT
+    assert not any(name == "create_repeat" for name, _ in api.calls)
+
+    # прогресс говорил «пора», а API — уже нет (гонка): текст по коду ошибки
+    api.progress = MIXED
+    api.errors["create_repeat"] = ApiError(409, "nothing_due", "нет")
+    await user.press(RepeatCb().pack())
+    assert tg.last_text() == render.NOTHING_DUE
+
+
+async def test_repeat_nothing_due_offers_force(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    """Сроки не подошли — ближайший срок и «Всё равно повторить» (011 §5.2, решение 1)."""
+    api.progress = Progress(
+        topics=[tp("db.sql", "ok", 81, 2, due_in="через сутки")],
+        sessions=[],
+        next_due=NextDue(slug="db.sql", title="SQL: JOIN, агрегация", due_in="через сутки"),
+    )
+    await user.send("/repeat")
+    assert tg.last_text() == (
+        "Сегодня повторять нечего 🎉 Ближайшее: «SQL» — через сутки. Можно повторить и сейчас."
+    )
+    button = tg.of(SendMessage)[-1].reply_markup.inline_keyboard[0][0]
+    assert button.text == "🔁 Всё равно повторить"
+    assert not any(name == "create_repeat" for name, _ in api.calls)
+
+    await user.press(button.callback_data)
+    assert api.calls[-1] == ("create_repeat", {"user_id": api.user_id, "n": 3, "force": True})
+    assert tg.last_text().startswith("🔁 Повторение · <b>Вопрос 1 из 2</b>")
+
+    await user.send("/progress")
+    markup = tg.of(SendMessage)[-1].reply_markup
+    assert markup.inline_keyboard[0][0].callback_data == RepeatCb(force=True).pack()
 
 
 async def test_progress_button(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
@@ -354,6 +399,7 @@ async def test_training_settings(
     )
     assert render.preparing(10, "только обязательные · сложнее") in tg.texts()
 
+    api.progress = MIXED
     await user.send("/repeat")
     assert api.calls[-1] == (
         "create_repeat",

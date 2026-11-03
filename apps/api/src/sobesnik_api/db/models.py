@@ -417,6 +417,12 @@ class TopicProgress(Base):
     """До трёх последних баллов, новые первыми."""
     last_score: Mapped[int] = mapped_column(Integer)
     avg_last3: Mapped[float] = mapped_column(Float)
+    reps: Mapped[int | None] = mapped_column(Integer)
+    """SM-2 (011 §5): успешных повторений подряд, лёгкость, интервал и срок повторения.
+    Пусто — строка не пересчитана после миграции, срок «сейчас»."""
+    ease: Mapped[float | None] = mapped_column(Float)
+    interval_days: Mapped[int | None] = mapped_column(Integer)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

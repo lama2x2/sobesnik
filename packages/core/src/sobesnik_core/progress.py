@@ -1,8 +1,11 @@
-"""Прогресс по темам и выбор тем для повторения (PRG-1…3, 007 §4–5)."""
+"""Прогресс по темам и выбор тем для повторения (PRG-1…3, 007 §4–5, SM-2 — 011 §5)."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
+
+from sobesnik_core.repetition import Schedule, schedule
 
 TopicStatus = Literal["weak", "few", "ok"]
 
@@ -25,6 +28,11 @@ class TopicStats:
     attempts: int
     last_scores: tuple[int, ...]
     """До `LAST_N` последних баллов, новые первыми."""
+    schedule: Schedule | None = None
+    """Срок повторения SM-2; `None` — ещё не посчитан (до пересчёта), считается «сейчас»."""
+
+    def due(self, now: datetime) -> bool:
+        return self.schedule is None or self.schedule.due(now)
 
     @property
     def last_score(self) -> int | None:
@@ -42,6 +50,15 @@ def topic_stats(scores_newest_first: Sequence[int], attempts: int | None = None)
     return TopicStats(
         attempts=len(scores_newest_first) if attempts is None else attempts,
         last_scores=tuple(scores_newest_first[:LAST_N]),
+    )
+
+
+def stats_from_history(history_newest_first: Sequence[tuple[int, datetime]]) -> TopicStats:
+    """Статистика и срок SM-2 по всем попыткам темы `(балл, время)`, новые первыми."""
+    return TopicStats(
+        attempts=len(history_newest_first),
+        last_scores=tuple(score for score, _ in history_newest_first[:LAST_N]),
+        schedule=schedule(list(reversed(history_newest_first))),
     )
 
 
@@ -67,13 +84,38 @@ def sort_key(stats: TopicStats, thresholds: Thresholds) -> tuple[int, float]:
     return order, stats.avg_last3 if stats.avg_last3 is not None else 0.0
 
 
-def repeat_topics(progress: dict[str, TopicStats], thresholds: Thresholds, limit: int) -> list[str]:
-    """Темы для повторения (PRG-3): слабые от самых низких, потом «мало данных» с низким баллом."""
-    weak = [s for s, st in progress.items() if topic_status(st, thresholds) == "weak"]
-    low = [s for s, st in progress.items() if is_low(st, thresholds)]
+def repeat_topics(
+    progress: dict[str, TopicStats],
+    thresholds: Thresholds,
+    now: datetime,
+    limit: int,
+    *,
+    force: bool = False,
+) -> list[str]:
+    """Темы для повторения (PRG-3, 011 §5): со сроком SM-2 не позже `now` — слабые, потом «мало
+    данных», потом «в порядке», внутри — от самых низких.
 
-    def by_avg(slug: str) -> tuple[float, str]:
-        avg = progress[slug].avg_last3
-        return (avg if avg is not None else 0.0, slug)
+    Сроков нет и `force` — темы с ближайшим сроком («Всё равно повторить»)."""
 
-    return (sorted(weak, key=by_avg) + sorted(low, key=by_avg))[:limit]
+    def by_status(slug: str) -> tuple[int, float, str]:
+        return (*sort_key(progress[slug], thresholds), slug)
+
+    due = sorted((s for s, st in progress.items() if st.due(now)), key=by_status)
+    if due or not force:
+        return due[:limit]
+
+    def by_due(slug: str) -> tuple[datetime, int, float, str]:
+        sched = progress[slug].schedule
+        assert sched is not None  # без срока тема была бы в `due`
+        return (sched.due_at, *by_status(slug))
+
+    return sorted(progress, key=by_due)[:limit]
+
+
+def next_due(progress: dict[str, TopicStats]) -> tuple[str, datetime] | None:
+    """Тема с ближайшим сроком повторения."""
+    dated = [(st.schedule.due_at, s) for s, st in progress.items() if st.schedule is not None]
+    if not dated:
+        return None
+    due_at, slug = min(dated)
+    return slug, due_at

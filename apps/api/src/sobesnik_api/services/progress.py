@@ -4,6 +4,7 @@ import logging
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Select, delete, func, select
@@ -20,7 +21,8 @@ from sobesnik_api.db.models import (
     User,
     Vacancy,
 )
-from sobesnik_core.progress import LAST_N, TopicStats, topic_stats
+from sobesnik_core.progress import LAST_N, TopicStats, stats_from_history
+from sobesnik_core.repetition import Schedule
 
 log = logging.getLogger(__name__)
 
@@ -67,25 +69,30 @@ async def recompute_topic(db: AsyncSession, user_id: uuid.UUID, topic: str) -> T
             .order_by(Answer.created_at.desc(), Answer.id)
         )
     ).all()
-    scores = [int(r.total) for r in rows]
-    if not scores:
+    history = [(int(r.total), r.created_at) for r in rows]
+    if not history:
         await db.execute(
             delete(TopicProgress).where(
                 TopicProgress.user_id == user_id, TopicProgress.topic_slug == topic
             )
         )
         return None
-    stats = topic_stats(scores)
+    stats = stats_from_history(history)
     await _upsert(db, user_id, topic, stats)
     return stats
 
 
 async def _upsert(db: AsyncSession, user_id: uuid.UUID, topic: str, stats: TopicStats) -> None:
+    sched = stats.schedule
     values = {
         "attempts": stats.attempts,
         "last_scores": list(stats.last_scores),
         "last_score": stats.last_score,
         "avg_last3": stats.avg_last3,
+        "reps": sched.reps if sched else None,
+        "ease": sched.ease if sched else None,
+        "interval_days": sched.interval_days if sched else None,
+        "due_at": sched.due_at if sched else None,
         "updated_at": func.now(),
     }
     await db.execute(
@@ -118,12 +125,12 @@ async def rebuild(db: AsyncSession, user_id: uuid.UUID | None = None) -> int:
         rows = (
             await db.execute(_attempts_query(uid).order_by(Answer.created_at.desc(), Answer.id))
         ).all()
-        by_topic: dict[str, list[int]] = defaultdict(list)
+        by_topic: dict[str, list[tuple[int, datetime]]] = defaultdict(list)
         for r in rows:
-            by_topic[r.topic_slug].append(int(r.total))
+            by_topic[r.topic_slug].append((int(r.total), r.created_at))
         await db.execute(delete(TopicProgress).where(TopicProgress.user_id == uid))
-        for topic, scores in by_topic.items():
-            await _upsert(db, uid, topic, topic_stats(scores))
+        for topic, history in by_topic.items():
+            await _upsert(db, uid, topic, stats_from_history(history))
             count += 1
     await db.commit()
     log.info("progress rebuilt", extra={"rows": count})
@@ -132,10 +139,17 @@ async def rebuild(db: AsyncSession, user_id: uuid.UUID | None = None) -> int:
 
 async def user_progress(db: AsyncSession, user_id: uuid.UUID) -> dict[str, TopicStats]:
     rows = await db.scalars(select(TopicProgress).where(TopicProgress.user_id == user_id))
-    return {
-        r.topic_slug: TopicStats(attempts=r.attempts, last_scores=tuple(r.last_scores[:LAST_N]))
-        for r in rows
-    }
+    return {r.topic_slug: _stats(r) for r in rows}
+
+
+def _stats(row: TopicProgress) -> TopicStats:
+    sched = None
+    if row.due_at is not None:
+        assert row.reps is not None and row.ease is not None and row.interval_days is not None
+        sched = Schedule(row.reps, row.ease, row.interval_days, row.due_at)
+    return TopicStats(
+        attempts=row.attempts, last_scores=tuple(row.last_scores[:LAST_N]), schedule=sched
+    )
 
 
 @dataclass(frozen=True)

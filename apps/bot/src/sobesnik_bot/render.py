@@ -100,7 +100,8 @@ class ProgressCb(CallbackData, prefix="progress"):
 
 
 class RepeatCb(CallbackData, prefix="repeat"):
-    pass
+    force: bool = False
+    """«Всё равно повторить»: сроки не подошли — темы с ближайшим сроком (011 §5)."""
 
 
 INTRO = (
@@ -121,7 +122,7 @@ HELP = (
     "/new — новая вакансия\n"
     "/train — тренировка по текущей вакансии (/train 10 — из 10 вопросов, от 3 до 15)\n"
     "/progress — темы: где слабо, где в порядке, что почитать\n"
-    "/repeat — новые вопросы по слабым темам\n"
+    "/repeat — новые вопросы по темам, которые пора повторить\n"
     "/forget — удалить голосовые или все мои данные\n"
     "/web — войти в веб-кабинет на компьютере с Sobesnik\n"
     "/help — эта справка"
@@ -166,8 +167,9 @@ FORGET_ASK = (
 )
 FORGET_ALL_CONFIRM = "Удалить вакансии, ответы, оценки и прогресс? Отменить нельзя."
 FORGET_CANCELLED = "Ничего не удалено."
-NOTHING_TO_REPEAT = "Слабых тем нет 🎉 Пройдите тренировку по вакансии — /train."
-PREPARING_REPEAT = "🧩 Готовлю вопросы по слабым темам… обычно около 40 секунд."
+NOTHING_TO_REPEAT = "Повторять пока нечего — сначала ответьте на пару вопросов: /train."
+NOTHING_DUE = "Сегодня повторять нечего 🎉 Сроки — в /progress."
+PREPARING_REPEAT = "🧩 Готовлю вопросы для повторения… обычно около 40 секунд."
 PICK_NONE = "Выберите хотя бы одну тему."
 PICK_CANCELLED = "Выбор тем отменён."
 NO_TOPICS = "У требований вакансии нет тем — тренируйтесь по всей вакансии."
@@ -675,7 +677,8 @@ def forget_all_keyboard() -> InlineKeyboardMarkup:
 GROUP_SHOWN = 10
 PROGRESS_NOTE = (
     "<i>Баллы примерные: одна оценка ошибается на ±20, "
-    "поэтому смотрим среднее последних трёх попыток.</i>"
+    "поэтому смотрим среднее последних трёх попыток. 🔁 — когда повторить: "
+    "слабую тему — сразу, хорошо отвеченную — через сутки, потом через неделю и реже.</i>"
 )
 PROGRESS_EMPTY = "Пока нечего показать: ответьте на пару вопросов — и здесь появятся темы."
 
@@ -702,6 +705,24 @@ def _more(items: list[TopicProgress]) -> str:
     return f"и ещё {rest}" if rest > 0 else ""
 
 
+def nothing_due_text(progress: Progress) -> str:
+    """Сроки повторения не подошли (011 §5.2, решение 1)."""
+    if progress.next_due is None:
+        return NOTHING_TO_REPEAT
+    nearest = progress.next_due
+    return (
+        f"Сегодня повторять нечего 🎉 Ближайшее: «{escape(short_title(nearest.title))}» — "
+        f"{nearest.due_in}. Можно повторить и сейчас."
+    )
+
+
+def repeat_now_keyboard() -> InlineKeyboardMarkup:
+    button = InlineKeyboardButton(
+        text="🔁 Всё равно повторить", callback_data=RepeatCb(force=True).pack()
+    )
+    return InlineKeyboardMarkup(inline_keyboard=[[button]])
+
+
 def progress_text(progress: Progress) -> str:
     if not progress.topics:
         return PROGRESS_EMPTY
@@ -712,7 +733,9 @@ def progress_text(progress: Progress) -> str:
     if weak:
         lines += ["", "🔴 <b>Слабые темы</b>"]
         for t in weak[:GROUP_SHOWN]:
-            lines.append(f"• {escape(t.title)} — {_score(t)} · {attempts_word(t.attempts)}")
+            lines.append(
+                f"• {escape(t.title)} — {_score(t)} · {attempts_word(t.attempts)} · 🔁 {t.due_in}"
+            )
             if t.docs:
                 lines.append("   📚 " + docs_line(t.docs))
         if _more(weak):
@@ -721,12 +744,16 @@ def progress_text(progress: Progress) -> str:
         lines += ["", "⚪ <b>Мало данных</b>"]
         for t in few[:GROUP_SHOWN]:
             hint = ", похоже стоит повторить" if t.low else ""
-            lines.append(f"• {escape(t.title)} — {_score(t)} · {attempts_word(t.attempts)}{hint}")
+            lines.append(
+                f"• {escape(t.title)} — {_score(t)} · {attempts_word(t.attempts)}{hint}"
+                f" · 🔁 {t.due_in}"
+            )
         if _more(few):
             lines.append(_more(few))
     if ok:
         shown = " · ".join(
-            f"{escape(short_title(t.title))} {_score(t)} ({t.attempts})" for t in ok[:GROUP_SHOWN]
+            f"{escape(short_title(t.title))} {_score(t)} ({t.attempts}, 🔁 {t.due_in})"
+            for t in ok[:GROUP_SHOWN]
         )
         more = f" · {_more(ok)}" if _more(ok) else ""
         lines += ["", f"🟢 <b>В порядке:</b> {shown}{more}"]
@@ -743,7 +770,11 @@ def progress_text(progress: Progress) -> str:
 
 
 def progress_keyboard(progress: Progress) -> InlineKeyboardMarkup | None:
-    if not any(t.status == "weak" or t.low for t in progress.topics):
-        return None
-    button = InlineKeyboardButton(text="🔁 Повторить слабые темы", callback_data=RepeatCb().pack())
-    return InlineKeyboardMarkup(inline_keyboard=[[button]])
+    """Повторить темы, у которых подошёл срок; сроков нет — «Всё равно повторить» (011 §5.2)."""
+    if progress.due_count:
+        text = f"🔁 Повторить: тем пора — {progress.due_count}"
+        button = InlineKeyboardButton(text=text, callback_data=RepeatCb().pack())
+        return InlineKeyboardMarkup(inline_keyboard=[[button]])
+    if progress.next_due is not None:
+        return repeat_now_keyboard()
+    return None

@@ -82,7 +82,7 @@ async def test_progress_after_evaluation(
 
     data = await progress(client, user)
     asyncio_ = topic(data, "python.asyncio")
-    assert asyncio_ | {"docs": None} == {
+    assert asyncio_ | {"docs": None, "due_at": None} == {
         "slug": "python.asyncio",
         "title": "asyncio и асинхронный код",
         "status": "few",
@@ -91,7 +91,19 @@ async def test_progress_after_evaluation(
         "last_score": 0,
         "avg_last3": 0.0,
         "docs": None,
+        "due": True,  # провал — повторить сразу (011 §5.3)
+        "due_at": None,
+        "due_in": "сейчас",
+        "interval_days": 0,
     }
+    indexes = topic(data, "db.indexes")
+    assert (indexes["due"], indexes["interval_days"], indexes["due_in"]) == (
+        False,
+        1,
+        "через сутки",
+    )
+    assert data["due_count"] == 1
+    assert data["next_due"] is None
     assert asyncio_["docs"][0]["url"].startswith("https://docs.python.org/")
     assert topic(data, "db.indexes")["low"] is False
     assert [t["slug"] for t in data["topics"]] == ["python.asyncio", "db.indexes"]
@@ -244,6 +256,55 @@ async def test_repeat_session(
     data = await progress(client, user)
     assert data["sessions"][0]["mode"] == "repeat"
     assert data["sessions"][0]["vacancy_title"] is None
+
+
+async def test_nothing_due_and_force(
+    client: AsyncClient,
+    deps: WorkerDeps,
+    llm: FakeProvider,
+    replies: Any,
+    user: dict[str, Any],
+    session: dict[str, Any],
+) -> None:
+    """Всё сдано сегодня — сроки завтра: `409 nothing_due`, с `force` — ближайшие (011 §5.4)."""
+    await answer(client, deps, llm, replies, session, 1, MID)
+    await answer(client, deps, llm, replies, session, 2, HIGH)
+    data = await progress(client, user)
+    assert data["due_count"] == 0
+    assert data["next_due"]["slug"] == "python.asyncio"  # ответ раньше — срок раньше
+    assert data["next_due"]["due_in"] == "через сутки"
+
+    body = {"mode": "repeat", "user_id": user["id"]}
+    nothing = await client.post("/sessions", json=body)
+    assert (nothing.status_code, nothing.json()["error"]["code"]) == (409, "nothing_due")
+    forced = await new_session(client, llm, body | {"force": True, "n": 5}, n=2)
+    assert [q["topic"] for q in forced["questions"]] == ["python.asyncio", "db.indexes"]
+
+    vacancy_force = {"vacancy_id": session["vacancy_id"], "force": True}
+    assert (await client.post("/sessions", json=vacancy_force)).status_code == 422
+
+
+async def test_rebuild_matches_step_by_step(
+    client: AsyncClient,
+    deps: WorkerDeps,
+    llm: FakeProvider,
+    replies: Any,
+    user: dict[str, Any],
+    session: dict[str, Any],
+    engine: AsyncEngine,
+) -> None:
+    await answer(client, deps, llm, replies, session, 1, LOW)
+    await answer(client, deps, llm, replies, session, 2, HIGH)
+    query = text(
+        "SELECT topic_slug, reps, ease, interval_days, due_at FROM topic_progress ORDER BY 1"
+    )
+    async with engine.connect() as conn:
+        before = (await conn.execute(query)).all()
+    async with make_sessionmaker(engine)() as db:
+        await rebuild(db)
+    async with engine.connect() as conn:
+        assert (await conn.execute(query)).all() == before
+    assert [row.reps for row in before] == [1, 0]  # db.indexes сдана, asyncio — нет
 
 
 async def test_repeat_errors(client: AsyncClient, user: dict[str, Any]) -> None:

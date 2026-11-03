@@ -115,6 +115,7 @@ async def post_session(
             body.n,
             settings.progress_thresholds(),
             difficulty=body.difficulty,
+            force=body.force,
             max_retries=settings.llm_max_retries,
         )
     else:

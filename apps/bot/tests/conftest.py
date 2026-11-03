@@ -249,9 +249,11 @@ class FakeApi:
         return self.session
 
     async def create_repeat(
-        self, user_id: uuid.UUID, n: int, *, difficulty: Difficulty = "same"
+        self, user_id: uuid.UUID, n: int, *, difficulty: Difficulty = "same", force: bool = False
     ) -> Session:
-        extra = {"difficulty": difficulty} if difficulty != "same" else {}
+        extra: dict[str, Any] = {"difficulty": difficulty} if difficulty != "same" else {}
+        if force:
+            extra["force"] = True
         self._call("create_repeat", user_id=user_id, n=n, **extra)
         return self._new_session(None, 2, "repeat")
 
