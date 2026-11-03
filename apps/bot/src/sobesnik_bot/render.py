@@ -79,6 +79,7 @@ class TopicsCb(CallbackData, prefix="topics"):
     """`open`, `toggle`, `start`, `cancel`."""
     vacancy_id: uuid.UUID | None = None
     i: int = 0
+    """Для `toggle` — номер темы, для `start` — число вопросов."""
 
 
 class ProgressCb(CallbackData, prefix="progress"):
@@ -220,16 +221,20 @@ def _cut(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-def pick_text(n: int) -> str:
+PICK_COUNTS = (5, 10, 15)
+"""Число вопросов по выбранным темам — кнопками в самом списке тем."""
+
+
+def pick_text() -> str:
     return (
-        "<b>🎯 Выберите темы для тренировки</b>\n"
-        f"Вопросов будет {n}: по требованиям вакансии с этими темами.\n"
+        "<b>🎯 Выберите темы и число вопросов</b>\n"
+        "Вопросы будут по требованиям вакансии с этими темами.\n"
         "<i>🔴 — слабая тема по прошлым ответам.</i>"
     )
 
 
 def pick_keyboard(
-    topics: list[tuple[str, str]], picked: list[str], weak: set[str], n: int
+    topics: list[tuple[str, str]], picked: list[str], weak: set[str]
 ) -> InlineKeyboardMarkup:
     rows = [
         [
@@ -241,13 +246,17 @@ def pick_keyboard(
         ]
         for i, (slug, title) in enumerate(topics)
     ]
-    chosen = sum(slug in picked for slug, _ in topics)
-    start = f"▶️ Начать ({n} вопросов)" if chosen else "▶️ Начать — выберите тему"
     rows.append(
         [
-            InlineKeyboardButton(text=start, callback_data=TopicsCb(action="start").pack()),
-            InlineKeyboardButton(text="Отмена", callback_data=TopicsCb(action="cancel").pack()),
+            InlineKeyboardButton(
+                text=f"▶️ {n} вопросов" if n == PICK_COUNTS[0] else f"{n} вопросов",
+                callback_data=TopicsCb(action="start", i=n).pack(),
+            )
+            for n in PICK_COUNTS
         ]
+    )
+    rows.append(
+        [InlineKeyboardButton(text="Отмена", callback_data=TopicsCb(action="cancel").pack())]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -353,6 +362,10 @@ def evaluation_text(answer: Answer, *, note: bool) -> str:
 
 DOCS_SHOWN = 2
 """Ссылки — одной строкой, не больше двух (007 §8.4)."""
+
+
+def skipped_text(docs: list[Doc]) -> str:
+    return "⏭ Пропущено.\n📚 Почитать: " + docs_line(docs)
 
 
 def docs_line(docs: list[Doc]) -> str:

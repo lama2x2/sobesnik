@@ -7,14 +7,15 @@ from sobesnik_api.db.models import Answer, Audio, Evaluation, Transcript
 from sobesnik_api.deps import DB, AppSettings, Queue, Storage
 from sobesnik_api.errors import PayloadTooLargeError
 from sobesnik_api.schemas import (
+    DOCS_SHOWN,
     AnswerAccepted,
     AnswerCreate,
     AnswerOut,
     AudioOut,
     CriterionScoreOut,
     EvaluationOut,
-    TopicDocOut,
     TranscriptOut,
+    docs_out,
 )
 from sobesnik_api.services.answers import get_answer, submit_answer
 from sobesnik_api.services.evaluation import live_evaluation
@@ -25,7 +26,6 @@ from sobesnik_api.services.voice import (
     submit_voice_answer,
 )
 from sobesnik_core.rubric import Rubric, load_rubric
-from sobesnik_core.topics import topic_docs
 from sobesnik_core.versioned import version_number
 
 router = APIRouter(tags=["answers"])
@@ -100,14 +100,6 @@ def transcript_out(transcript: Transcript | None) -> TranscriptOut | None:
     )
 
 
-ANSWER_DOCS = 2
-"""Под оценкой — не больше двух ссылок, одной строкой (007 §8.4)."""
-
-
-def docs_out(topic: str | None, limit: int | None = None) -> list[TopicDocOut]:
-    return [TopicDocOut(title=d.title, url=d.url) for d in topic_docs(topic)[:limit]]
-
-
 async def answer_out(db: AsyncSession, answer: Answer, evaluation: Evaluation | None) -> AnswerOut:
     """Транскрипт — тот, что оценён «боевой» оценкой, а пока её нет — последний распознанный."""
     audio = transcript = None
@@ -130,7 +122,7 @@ async def answer_out(db: AsyncSession, answer: Answer, evaluation: Evaluation | 
         transcript=transcript_out(transcript),
         evaluation=evaluation_out(evaluation) if evaluation else None,
         topic=answer.question.topic_slug,
-        docs=docs_out(answer.question.topic_slug, ANSWER_DOCS),
+        docs=docs_out(answer.question.topic_slug, DOCS_SHOWN),
     )
 
 

@@ -193,6 +193,13 @@ async def test_topics_filter_plan(
     assert empty.status_code == 422
 
 
+async def test_session_questions_have_docs(session: dict[str, Any]) -> None:
+    first = session["questions"][0]
+    assert first["topic"] == "python.asyncio"
+    assert 1 <= len(first["docs"]) <= 2
+    assert first["docs"][0]["url"].startswith("https://docs.python.org/")
+
+
 async def test_requirement_topic_title(vacancy: dict[str, Any]) -> None:
     assert vacancy["requirements"][0]["topic_title"] == "asyncio и асинхронный код"
 

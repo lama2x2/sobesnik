@@ -240,7 +240,8 @@ def build_router(trainer: Trainer) -> Router:
             # ответить на нажатие сразу: генерация идёт до минуты
             if await trainer.has_picked(telegram_id):
                 await query.answer()
-                await trainer.pick_start(chat_id, message_id, telegram_id)
+                n = callback_data.i if QUESTIONS_MIN <= callback_data.i <= QUESTIONS_MAX else None
+                await trainer.pick_start(chat_id, message_id, telegram_id, n)
                 return
             error = render.PICK_NONE
         else:

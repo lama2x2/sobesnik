@@ -53,6 +53,7 @@ class SessionQuestion(_Model):
     text: str
     topic: str | None
     answer: SessionAnswer | None = None
+    docs: list["Doc"] = []
 
 
 class Session(_Model):

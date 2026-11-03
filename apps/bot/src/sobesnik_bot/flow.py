@@ -586,10 +586,19 @@ class Trainer:
         )
 
     async def skip(self, chat_id: int, telegram_id: int, question_id: uuid.UUID) -> str:
+        """Следующий вопрос; у пропущенного — ссылки «что почитать» по теме (007 §8.4)."""
         state = await self.store.get_user(telegram_id)
         if state.mode != "answer" or state.question_id != question_id:
             return "Этот вопрос уже не текущий."
-        await self._ask_next(chat_id, telegram_id, state)
+        assert state.session_id is not None
+        session = None
+        with contextlib.suppress(ApiError):  # не вышло — `_ask_next` спросит API сам
+            session = await self.api.get_session(state.session_id)
+        questions = session.questions if session else []
+        skipped = next((q for q in questions if q.id == question_id), None)
+        if skipped is not None and skipped.docs:
+            await self._send(chat_id, render.skipped_text(skipped.docs))
+        await self._ask_next(chat_id, telegram_id, state, session)
         return render.SKIPPED
 
     async def _finish(self, chat_id: int, telegram_id: int, state: UserState) -> None:
@@ -787,8 +796,8 @@ class Trainer:
     ) -> None:
         topics = render.vacancy_topics(vacancy)
         weak = await self._weak_topics(state)
-        markup = render.pick_keyboard(topics, state.picked, weak, self.questions)
-        text = render.pick_text(self.questions)
+        markup = render.pick_keyboard(topics, state.picked, weak)
+        text = render.pick_text()
         if message_id is None:
             await self._send(chat_id, text, markup)
         else:
@@ -805,8 +814,10 @@ class Trainer:
             return render.NO_TOPICS
         if vacancy_id != state.vacancy_id:
             state.vacancy_id, state.session_id, state.question_id = vacancy_id, None, None
-            state.position, state.mode = 0, "idle"
-        state.picked = []
+            state.position, state.mode, state.picked = 0, "idle", []
+        # отметки живут до старта тренировки или смены вакансии (007 §8.3)
+        slugs = {slug for slug, _ in render.vacancy_topics(vacancy)}
+        state.picked = [t for t in state.picked if t in slugs]
         await self.store.save_user(telegram_id, state)
         await self._show_pick(chat_id, None, state, vacancy)
         return None
@@ -836,14 +847,16 @@ class Trainer:
     async def has_picked(self, telegram_id: int) -> bool:
         return bool((await self.store.get_user(telegram_id)).picked)
 
-    async def pick_start(self, chat_id: int, message_id: int, telegram_id: int) -> str | None:
+    async def pick_start(
+        self, chat_id: int, message_id: int, telegram_id: int, n: int | None = None
+    ) -> str | None:
         state = await self.store.get_user(telegram_id)
         if not state.picked:
             return render.PICK_NONE
         picked, state.picked = state.picked, []
         await self.store.save_user(telegram_id, state)
         await self._edit(chat_id, message_id, f"🎯 Темы выбраны: {len(picked)}.")
-        await self.train(chat_id, telegram_id, new=True, topics=picked)
+        await self.train(chat_id, telegram_id, n, new=True, topics=picked)
         return None
 
     async def pick_cancel(self, chat_id: int, message_id: int, telegram_id: int) -> None:

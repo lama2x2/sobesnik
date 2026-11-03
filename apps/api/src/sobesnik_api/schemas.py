@@ -20,7 +20,7 @@ from sobesnik_core.limits import (
     QUESTIONS_MAX,
     QUESTIONS_MIN,
 )
-from sobesnik_core.topics import topic_title
+from sobesnik_core.topics import topic_docs, topic_title
 from sobesnik_core.vacancy import Level
 
 MAX_HTML_CHARS = 3 * 1024 * 1024
@@ -140,6 +140,8 @@ class SessionQuestionOut(BaseModel):
     topic: str | None
     key_points: list[str]
     answer: SessionAnswerOut | None = None
+    docs: list["TopicDocOut"] = []
+    """До двух ссылок «что почитать» — для пропущенного вопроса (007 §8.4)."""
 
 
 class SessionOut(BaseModel):
@@ -222,6 +224,14 @@ class AnswerOut(BaseModel):
 class TopicDocOut(BaseModel):
     title: str
     url: str
+
+
+DOCS_SHOWN = 2
+"""Под оценкой и у пропущенного вопроса — не больше двух ссылок, одной строкой (007 §8.4)."""
+
+
+def docs_out(topic: str | None, limit: int | None = None) -> list[TopicDocOut]:
+    return [TopicDocOut(title=d.title, url=d.url) for d in topic_docs(topic)[:limit]]
 
 
 class ForgetOut(BaseModel):

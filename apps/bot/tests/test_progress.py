@@ -15,7 +15,7 @@ from sobesnik_bot.api import (
     TopicProgress,
 )
 from sobesnik_bot.flow import Trainer
-from sobesnik_bot.render import ForgetCb, ProgressCb, RepeatCb, TopicsCb
+from sobesnik_bot.render import ForgetCb, ProgressCb, RepeatCb, SkipCb, TopicsCb
 from sobesnik_bot.state import StateStore
 
 from .conftest import USER, Chat_, FakeApi, FakeSession
@@ -179,28 +179,72 @@ async def test_pick_topics(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
     await user.press(TopicsCb(action="open", vacancy_id=api.vacancy.id).pack())
     sent = tg.of(SendMessage)[-1]
     rows = sent.reply_markup.inline_keyboard
-    assert [r[0].text for r in rows[:-1]] == [
+    assert [r[0].text for r in rows[:-2]] == [
         "⬜ 🔴 Индексы и планы запросов",
         "⬜ asyncio и асинхронный код",
     ]
+    assert [b.text for b in rows[-2]] == ["▶️ 5 вопросов", "10 вопросов", "15 вопросов"]
 
-    await user.press(TopicsCb(action="start").pack())
+    await user.press(TopicsCb(action="start", i=5).pack())
     assert tg.of(AnswerCallbackQuery)[-1].text == render.PICK_NONE
     assert "create_session" not in api.names()
 
     await user.press(TopicsCb(action="toggle", i=1).pack())
     rows = tg.of(EditMessageText)[-1].reply_markup.inline_keyboard
     assert rows[1][0].text == "✅ asyncio и асинхронный код"
-    assert rows[-1][0].text == "▶️ Начать (3 вопросов)"
     await user.press(TopicsCb(action="toggle", i=0).pack())
     await user.press(TopicsCb(action="toggle", i=0).pack())  # снять отметку
 
-    await user.press(TopicsCb(action="start").pack())
+    await user.press(TopicsCb(action="start", i=10).pack())
     assert api.calls[-1] == (
         "create_session",
-        {"vacancy_id": api.vacancy.id, "n": 3, "topics": ["python.asyncio"]},
+        {"vacancy_id": api.vacancy.id, "n": 10, "topics": ["python.asyncio"]},
     )
-    assert tg.last_text().startswith("<b>Вопрос 1 из 3</b>")
+    assert tg.last_text().startswith("<b>Вопрос 1 из 10</b>")
+
+
+async def test_pick_survives_reopen(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    """Замечание автора: закрыл список, открыл снова — отметки на месте (007 §8.3)."""
+    _with_topics(api)
+    await user.send("Ищем Python-разработчика")
+    await user.press(TopicsCb(action="open", vacancy_id=api.vacancy.id).pack())
+    await user.press(TopicsCb(action="toggle", i=0).pack())
+    await user.press(TopicsCb(action="open", vacancy_id=api.vacancy.id).pack())
+    rows = tg.of(SendMessage)[-1].reply_markup.inline_keyboard
+    assert rows[0][0].text == "✅ Индексы и планы запросов"
+
+    # после старта тренировки отметки сброшены
+    await user.press(TopicsCb(action="start", i=5).pack())
+    await user.send("/new")
+    await user.send("Ищем Python-разработчика")
+    await user.press(TopicsCb(action="open", vacancy_id=api.vacancy.id).pack())
+    rows = tg.of(SendMessage)[-1].reply_markup.inline_keyboard
+    assert rows[0][0].text == "⬜ Индексы и планы запросов"
+
+    # другая вакансия — отметки прежней не переносятся
+    await user.press(TopicsCb(action="toggle", i=0).pack())
+    api.vacancy = api.vacancy.model_copy(update={"id": uuid.uuid4()})
+    await user.press(TopicsCb(action="open", vacancy_id=api.vacancy.id).pack())
+    rows = tg.of(SendMessage)[-1].reply_markup.inline_keyboard
+    assert rows[0][0].text == "⬜ Индексы и планы запросов"
+
+
+async def test_skip_shows_docs(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    await user.send("Ищем Python-разработчика")
+    await user.send("/train")
+    assert api.session is not None
+    first, *rest = api.session.questions
+    api.session = api.session.model_copy(
+        update={"questions": [first.model_copy(update={"docs": DOCS[:2]}), *rest]}
+    )
+    await user.press(SkipCb(question_id=first.id).pack())
+    texts = tg.texts()
+    assert texts[-2].startswith("⏭ Пропущено.\n📚 Почитать: <a href=")
+    assert texts[-2].count("<a href=") == 2
+    assert texts[-1].startswith("<b>Вопрос 2 из 3</b>")
+
+    await user.press(SkipCb(question_id=rest[0].id).pack())  # без ссылок — без сообщения
+    assert not tg.texts()[-2].startswith("⏭")
 
 
 async def test_pick_cancel_and_no_topics(user: Chat_, api: FakeApi, tg: FakeSession) -> None:

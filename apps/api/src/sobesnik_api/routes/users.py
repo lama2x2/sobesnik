@@ -8,7 +8,6 @@ from sqlalchemy.dialects.postgresql import insert
 from sobesnik_api.db.models import TrainingSession, User, Vacancy
 from sobesnik_api.deps import DB, AppSettings, Storage
 from sobesnik_api.errors import NotFoundError
-from sobesnik_api.routes.answers import docs_out
 from sobesnik_api.routes.sessions import summary_out
 from sobesnik_api.schemas import (
     ForgetOut,
@@ -17,6 +16,7 @@ from sobesnik_api.schemas import (
     ThresholdsOut,
     TopicProgressOut,
     UserOut,
+    docs_out,
 )
 from sobesnik_api.services.progress import forget_rest, user_progress
 from sobesnik_api.services.voice import forget_audio

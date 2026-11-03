@@ -7,12 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sobesnik_api.db.models import TrainingSession
 from sobesnik_api.deps import DB, LLM, AppSettings
 from sobesnik_api.schemas import (
+    DOCS_SHOWN,
     SessionAnswerOut,
     SessionCreate,
     SessionOut,
     SessionQuestionOut,
     SessionSummaryOut,
     SummaryQuestionOut,
+    docs_out,
 )
 from sobesnik_api.services.answers import AnswerState, finish_session, session_answers
 from sobesnik_api.services.sessions import create_repeat_session, create_session, get_session
@@ -50,6 +52,7 @@ async def session_out(db: AsyncSession, session: TrainingSession) -> SessionOut:
                 topic=item.question.topic_slug,
                 key_points=item.question.key_points,
                 answer=_answer_out(answers.get(item.question_id)),
+                docs=docs_out(item.question.topic_slug, DOCS_SHOWN),
             )
             for item in session.items
         ],
