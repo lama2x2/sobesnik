@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings
 
 from sobesnik_api.settings import Settings
 from sobesnik_bot.settings import BotSettings
+from sobesnik_web.settings import WebSettings
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_EXAMPLE = ROOT / "deploy" / ".env.example"
@@ -30,7 +31,7 @@ def example_values() -> dict[str, str]:
 
 def settings_fields() -> dict[str, tuple[type[BaseSettings], str]]:
     fields: dict[str, tuple[type[BaseSettings], str]] = {}
-    for cls in (Settings, BotSettings):
+    for cls in (Settings, BotSettings, WebSettings):
         for name in cls.model_fields:
             fields[name.upper()] = (cls, name)
     return fields
@@ -81,13 +82,21 @@ def defaults_in_example() -> dict[str, str]:
     return values
 
 
-def test_api_port_is_local_only() -> None:
-    """Порт API — только на этом компьютере (008, решение 3)."""
+def test_ports_are_local_only() -> None:
+    """Порты API и веба — только на этом компьютере (008, решение 3; 009 §10)."""
     compose = yaml.safe_load((ROOT / "compose.yaml").read_text())
-    assert compose["services"]["api"]["ports"] == ["127.0.0.1:${API_PORT:-8000}:8000"]
-    for name, service in compose["services"].items():
-        if name != "api":
+    services = compose["services"]
+    assert services["api"]["ports"] == ["127.0.0.1:${API_PORT:-8000}:8000"]
+    assert services["web"]["ports"] == ["127.0.0.1:${WEB_PORT:-8080}:8000"]
+    for name, service in services.items():
+        if name not in ("api", "web"):
             assert "ports" not in service, name
+
+
+def test_web_has_no_access_log() -> None:
+    """В адресе страницы входа — секрет ссылки из бота: лог доступа веба выключен (009 §4)."""
+    compose = yaml.safe_load((ROOT / "compose.yaml").read_text())
+    assert "--no-access-log" in compose["services"]["web"]["command"]
 
 
 def test_gpu_overlay_points_services_to_ollama() -> None:

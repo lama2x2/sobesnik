@@ -115,6 +115,7 @@ async def read_progress(
                 id=session.id,
                 created_at=session.created_at,
                 mode=session.mode,
+                status=session.status,
                 vacancy_title=vacancy.title if vacancy else None,
                 answered=summary.answered,
                 passed=summary.passed,

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block content %}
+{% if not llm.ok %}
+<p class="warn">⚠️ {{ llm.hint or "Модель сейчас недоступна." }} Разбор вакансии и оценка заработают, когда она вернётся.</p>
+{% endif %}
+
+{% if active %}
+<section class="card">
+  <h2>Незаконченная тренировка</h2>
+  <ul class="plain">
+  {% for s in active %}
+    <li>{{ s.created_at.strftime("%d.%m") }} ·
+      {{ "Повторение" if s.mode == "repeat" else (s.vacancy_title or "Вакансия") }} ·
+      отвечено {{ s.answered }} из {{ s.scores|length }}
+      <a class="button" href="/sessions/{{ s.id }}">Продолжить</a></li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Новая вакансия</h2>
+  <form hx-post="/vacancies" hx-encoding="multipart/form-data"
+        data-wait="📄 Разбираю вакансию… обычно 30–50 секунд">
+    <label>Текст вакансии
+      <textarea name="text" rows="8" maxlength="{{ VACANCY_MAX_CHARS }}"
+                placeholder="Вставьте текст вакансии целиком"></textarea></label>
+    <label>…или ссылка <input name="url" type="url" placeholder="https://hh.ru/vacancy/…"></label>
+    <label>…или сохранённая страница (.html) <input name="file" type="file" accept=".html,.htm,text/html"></label>
+    <button>Разобрать</button>
+  </form>
+  <p class="muted">Без интернета ссылки не открываются — вставьте текст или сохранённую страницу.</p>
+</section>
+
+{% if vacancies %}
+<section class="card">
+  <h2>Мои вакансии</h2>
+  <ul class="plain">
+  {% for v in vacancies %}
+    <li><a href="/vacancies/{{ v.id }}">{{ v.title }}</a> · {{ LEVEL_TITLES.get(v.level, v.level) }}
+      <span class="muted">· {{ v.created_at.strftime("%d.%m") }}</span></li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if history %}
+<section class="card">
+  <h2>Последние тренировки</h2>
+  <ul class="plain">
+  {% for s in history %}
+    <li><a href="/sessions/{{ s.id }}/summary">{{ s.created_at.strftime("%d.%m") }} ·
+      {{ "Повторение" if s.mode == "repeat" else (s.vacancy_title or "Вакансия") }}</a> ·
+      {{ s.passed }} из {{ s.scores|length }} пройдено</li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<p class="muted">{{ PRIVACY_NOTE }}</p>
+{% endblock %}

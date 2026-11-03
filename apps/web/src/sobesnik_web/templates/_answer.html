@@ -1,0 +1,57 @@
+{# нужны: answer, session_id, position, total, elapsed, slow #}
+<div class="answer"
+  {% if not answer.final %}
+  hx-get="/answers/{{ answer.id }}/status?position={{ position }}&total={{ total }}"
+  hx-trigger="load delay:2s" hx-swap="outerHTML"
+  {% endif %}>
+{% if not answer.final %}
+  <p class="status">✅ Принято. {{ status_line(answer.kind, answer.status) }}
+    <span class="muted">{{ elapsed }} с</span></p>
+  {% if slow %}
+  <p class="muted">Модель думает дольше обычного, ответ сохранён — можно закрыть страницу и вернуться позже.</p>
+  {% endif %}
+  {% if answer.transcript %}
+  <h3>Вот что я услышал</h3>
+  <blockquote>{{ answer.transcript.text }}</blockquote>
+  {% endif %}
+{% elif answer.status == "failed" %}
+  <p class="error">{{ failure_text(answer.error) }}</p>
+  {% set question_id = answer.question_id %}
+  {% include "_answer_forms.html" %}
+{% else %}
+  {% set ev = answer.evaluation %}
+  {% if ev %}
+  <p class="band">{{ band(ev.total, ev.passed) }} · ≈ {{ approx(ev.total) }} из 100</p>
+  <p class="muted">{{ APPROX_NOTE }}</p>
+  <ul class="criteria">
+    {% for s in ev.scores %}
+    <li><details><summary>{{ criterion_title(s.criterion, s.title) }}
+      <span class="dots">{{ dots(s.score) }}</span></summary>{{ s.reason }}</details></li>
+    {% endfor %}
+  </ul>
+  {% if ev.missed_points %}
+  <h3>Что упущено</h3>
+  <ul>{% for p in ev.missed_points %}<li>{{ p }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if ev.advice %}<p><b>Совет:</b> {{ ev.advice }}</p>{% endif %}
+  {% if not ev.passed and answer.docs %}
+  <p>📚 Почитать:
+    {% for d in answer.docs %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a>{{ " · " if not loop.last }}{% endfor %}</p>
+  {% endif %}
+  {% endif %}
+  {% if answer.transcript %}
+  <details><summary>Распознано</summary><blockquote>{{ answer.transcript.text }}</blockquote></details>
+  {% if ev and ev.asr_doubts %}
+  <p><b>Возможно, распознано неверно — проверьте:</b></p>
+  <ul>{% for d in ev.asr_doubts[:DOUBTS_SHOWN] %}<li>{{ d }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% endif %}
+  <p>
+  {% if position < total %}
+    <a class="button" href="/sessions/{{ session_id }}?q={{ position + 1 }}">Следующий вопрос →</a>
+  {% else %}
+    <a class="button" href="/sessions/{{ session_id }}?q={{ total + 1 }}">К сводке →</a>
+  {% endif %}
+  </p>
+{% endif %}
+</div>

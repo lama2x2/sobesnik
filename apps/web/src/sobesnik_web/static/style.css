@@ -1,0 +1,68 @@
+/* Веб-кабинет Sobesnik: без внешних шрифтов и CDN — всё грузится офлайн (009 §4). */
+:root {
+  --bg: #f6f7f9; --card: #fff; --text: #1d2228; --muted: #6a737d; --line: #dde1e6;
+  --accent: #2463eb; --accent-text: #fff; --error: #b42318; --warn-bg: #fff4e5; --ok: #157f3b;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15181c; --card: #1e2227; --text: #e6e8eb; --muted: #9aa3ad; --line: #333a42;
+    --accent: #5b8cff; --accent-text: #0b0d10; --error: #ff7b72; --warn-bg: #3a2d14; --ok: #56d364;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header.top { display: flex; gap: 24px; align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid var(--line); background: var(--card); }
+header.top nav { display: flex; gap: 16px; flex-wrap: wrap; }
+.brand { font-weight: 700; color: var(--text); text-decoration: none; }
+main { max-width: 760px; margin: 0 auto; padding: 16px; }
+a { color: var(--accent); }
+h1 { font-size: 1.5rem; margin: 8px 0 12px; }
+h2 { font-size: 1.15rem; margin: 0 0 8px; }
+h3 { font-size: 1rem; margin: 12px 0 4px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px; margin: 0 0 16px; }
+label { display: block; margin: 0 0 12px; }
+textarea, input[type=text], input[type=url], input:not([type]), input[type=number] {
+  display: block; width: 100%; margin-top: 4px; padding: 8px; font: inherit;
+  color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+input.narrow { width: 6em; }
+input[type=file] { margin-top: 4px; max-width: 100%; }
+fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 12px; }
+label.check { display: block; margin: 4px 0; }
+button, .button { display: inline-block; padding: 8px 14px; font: inherit; border-radius: 6px;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text);
+  cursor: pointer; text-decoration: none; }
+button.ghost, .button.ghost { background: transparent; color: var(--accent); }
+button.chosen { font-weight: 700; }
+button.danger { background: var(--error); border-color: var(--error); }
+button.link { background: none; border: none; padding: 0 4px; color: var(--muted);
+  text-decoration: underline; font-size: .9em; }
+button:disabled { opacity: .5; cursor: progress; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.row input:not([type=file]) { flex: 1; min-width: 10em; margin-top: 0; }
+.levels { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+form.inline { display: inline; }
+.muted { color: var(--muted); font-size: .92em; }
+.error { color: var(--error); }
+.ok { color: var(--ok); }
+.warn { background: var(--warn-bg); padding: 10px 12px; border-radius: 8px; }
+.waiting { color: var(--muted); margin: 8px 0; }
+.question { font-size: 1.1rem; white-space: pre-wrap; }
+.band { font-size: 1.15rem; font-weight: 600; }
+.dots { letter-spacing: 2px; }
+blockquote { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--line);
+  white-space: pre-wrap; }
+ul.plain { list-style: none; padding: 0; }
+ul.plain li { margin: 6px 0; }
+ul.criteria { list-style: none; padding: 0; }
+ol.steps { display: flex; gap: 6px; list-style: none; padding: 0; flex-wrap: wrap; }
+ol.steps a { display: inline-block; min-width: 2em; text-align: center; padding: 2px 6px;
+  border: 1px solid var(--line); border-radius: 6px; text-decoration: none; }
+ol.steps li.done a { border-color: var(--ok); }
+ol.steps li.current a { background: var(--accent); color: var(--accent-text); }
+.voice { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 8px; }
+audio { width: 100%; margin: 8px 0; }
+#flash:empty { display: none; }

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Сводка · Sobesnik{% endblock %}
+{% block content %}
+<h1>🏁 Тренировка завершена</h1>
+<p>Отвечено {{ summary.answered }} из {{ summary.questions|length }} · зачтено {{ summary.passed }}</p>
+<ol class="summary">
+  {% for r in rows %}
+  <li>
+    <a href="/sessions/{{ session.id }}?q={{ r.position }}">{{ r.text }}</a><br>
+    {% if r.total is not none and r.passed is not none %}
+      {{ band(r.total, r.passed) }} · ≈ {{ approx(r.total) }}
+    {% elif r.status is none %}
+      <span class="muted">пропущен</span>
+    {% else %}
+      <span class="muted">без оценки</span>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% if weakest %}<p>Слабее всего: {{ weakest.text }}</p>{% endif %}
+<p class="muted">{{ APPROX_NOTE }}</p>
+<p class="row">
+  {% if session.vacancy_id %}<a class="button" href="/vacancies/{{ session.vacancy_id }}">Новая тренировка</a>{% endif %}
+  <a class="button ghost" href="/progress">📊 Прогресс</a>
+  <a class="button ghost" href="/">На главную</a>
+</p>
+{% endblock %}

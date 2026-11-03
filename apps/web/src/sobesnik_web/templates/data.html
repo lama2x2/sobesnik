@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Мои данные · Sobesnik{% endblock %}
+{% block content %}
+<h1>Мои данные</h1>
+<p>{{ PRIVACY_NOTE }}</p>
+<p class="muted">Вы вошли {{ "без Telegram (профиль этого компьютера)" if me.local else "через Telegram — тот же профиль, что в боте" }}.</p>
+
+<section class="card">
+  <h2>Удалить</h2>
+  <div class="row">
+    <form hx-post="/data/forget" hx-target="#forget-result"
+          hx-confirm="Удалить все записи голоса и расшифровки? Оценки останутся. Отменить нельзя.">
+      <input type="hidden" name="scope" value="audio"><button>🎙 Только голос</button></form>
+    <form hx-post="/data/forget" hx-target="#forget-result"
+          hx-confirm="Удалить вакансии, ответы, оценки и прогресс? Отменить нельзя.">
+      <input type="hidden" name="scope" value="all"><button class="danger">🗑 Всё</button></form>
+  </div>
+  <div id="forget-result" aria-live="polite"></div>
+</section>
+
+<section class="card">
+  <h2>Выход</h2>
+  <div class="row">
+    <form method="post" action="/logout"><button class="ghost">Выйти</button></form>
+    <form method="post" action="/logout">
+      <input type="hidden" name="everywhere" value="true">
+      <button class="ghost">Выйти везде</button></form>
+  </div>
+  <p class="muted">«Выйти везде» закрывает все входы в веб-кабинет — например, если кто-то вошёл по вашей ссылке.</p>
+</section>
+{% endblock %}

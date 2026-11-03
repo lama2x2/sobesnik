@@ -117,6 +117,31 @@ services:
         condition: service_healthy
     restart: on-failure
 
+  # Веб-кабинет (009): Jinja + HTMX, тонкий клиент API. Лог доступа выключен: в адресе страницы
+  # входа есть секрет ссылки из бота.
+  web:
+    <<: *app
+    build:
+      context: .
+      target: runtime
+    command: ["uvicorn", "sobesnik_web.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      # только на этом компьютере, как API (009 §10)
+      - "127.0.0.1:${WEB_PORT:-8080}:8000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
   # Тесты, линтеры, CLI: docker compose run --rm tools uv run pytest
   tools:
     <<: *app

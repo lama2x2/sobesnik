@@ -312,6 +312,8 @@ class SessionHistoryOut(BaseModel):
     id: uuid.UUID
     created_at: datetime
     mode: str
+    status: str
+    """`active` — веб предлагает продолжить (009 §6)."""
     vacancy_title: str | None
     answered: int
     passed: int

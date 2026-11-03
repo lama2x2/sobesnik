@@ -1,4 +1,4 @@
-# Один образ на весь репозиторий: target runtime — для api, worker и bot, dev — для tools,
+# Один образ на весь репозиторий: target runtime — для api, worker, bot и web, dev — для tools,
 # runtime-gpu — для worker в профиле gpu.
 FROM python:3.12-slim AS base
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
@@ -11,6 +11,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY apps/api/pyproject.toml apps/api/
 COPY apps/bot/pyproject.toml apps/bot/
+COPY apps/web/pyproject.toml apps/web/
 COPY packages/asr/pyproject.toml packages/asr/
 COPY packages/core/pyproject.toml packages/core/
 COPY packages/llm/pyproject.toml packages/llm/

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Прогресс · Sobesnik{% endblock %}
+{% block content %}
+<h1>📊 Прогресс</h1>
+{% if not progress.topics %}
+<p>Пока нечего показать: ответьте на пару вопросов — и здесь появятся темы.</p>
+{% else %}
+  {% if groups.weak %}
+  <section class="card">
+    <h2>🔴 Слабые темы</h2>
+    <ul>
+    {% for t in groups.weak %}
+      <li>{{ t.title }} — {{ topic_score(t) }} · {{ attempts_word(t.attempts) }}
+        {% if t.docs %}<br>📚 {% for d in t.docs %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a>{{ " · " if not loop.last }}{% endfor %}{% endif %}</li>
+    {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  {% if groups.few %}
+  <section class="card">
+    <h2>⚪ Мало данных</h2>
+    <ul>
+    {% for t in groups.few %}
+      <li>{{ t.title }} — {{ topic_score(t) }} · {{ attempts_word(t.attempts) }}{% if t.low %}, похоже, стоит повторить{% endif %}</li>
+    {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  {% if groups.ok %}
+  <section class="card">
+    <h2>🟢 В порядке</h2>
+    <ul>{% for t in groups.ok %}<li>{{ t.title }} — {{ topic_score(t) }} · {{ attempts_word(t.attempts) }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+  {% if can_repeat %}
+  <form hx-post="/repeat" class="row" data-wait="🧩 Готовлю вопросы по слабым темам… обычно около 40 секунд">
+    <label>Вопросов <input type="number" name="n" value="{{ QUESTIONS_DEFAULT }}" min="{{ QUESTIONS_MIN }}"
+           max="{{ QUESTIONS_MAX }}" class="narrow"></label>
+    <button>🔁 Повторить слабые темы</button>
+  </form>
+  {% endif %}
+  <p class="muted">{{ PROGRESS_NOTE }}</p>
+{% endif %}
+
+{% if progress.sessions %}
+<section class="card">
+  <h2>Последние тренировки</h2>
+  <ul class="plain">
+  {% for h in progress.sessions %}
+    <li><a href="/sessions/{{ h.id }}{{ '/summary' if h.status == 'finished' }}">{{ h.created_at.strftime("%d.%m") }} ·
+      {{ "Повторение" if h.mode == "repeat" else (h.vacancy_title or "Вакансия") }}</a> ·
+      {{ h.passed }} из {{ h.scores|length }} пройдено{% if h.avg_total is not none %} · ≈ {{ approx(h.avg_total) }}{% endif %}
+      {% if h.status == "active" %}<span class="muted">· не закончена</span>{% endif %}</li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

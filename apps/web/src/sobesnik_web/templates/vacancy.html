@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ vacancy.title }} · Sobesnik{% endblock %}
+{% block content %}
+{% include "_profile.html" %}
+
+<section class="card">
+  <h2>Тренировка</h2>
+  <form hx-post="/vacancies/{{ vacancy.id }}/train"
+        data-wait="🧩 Готовлю вопросы… обычно 30–40 секунд">
+    {% set topics = vacancy.topics() %}
+    {% if topics %}
+    <fieldset>
+      <legend>Темы (ничего не отмечено — по всей вакансии)</legend>
+      {% for slug, title in topics %}
+      <label class="check"><input type="checkbox" name="topics" value="{{ slug }}"> {{ title }}</label>
+      {% endfor %}
+    </fieldset>
+    {% endif %}
+    <label>Вопросов
+      <input type="number" name="n" value="{{ QUESTIONS_DEFAULT }}" min="{{ QUESTIONS_MIN }}"
+             max="{{ QUESTIONS_MAX }}" class="narrow"></label>
+    <button>Начать тренировку</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,35 @@
+{# нужны: session_id, question_id, position, total #}
+<form hx-post="/sessions/{{ session_id }}/questions/{{ question_id }}/answer"
+      hx-target="#answer-area" hx-swap="innerHTML" data-wait="Отправляю…">
+  <input type="hidden" name="position" value="{{ position }}">
+  <input type="hidden" name="total" value="{{ total }}">
+  <label>Ответ текстом
+    <textarea name="text" rows="7" maxlength="{{ ANSWER_MAX_CHARS }}"
+              placeholder="Отвечайте, как на собеседовании: тезис, почему, пример"></textarea></label>
+  <button>Отправить ответ</button>
+</form>
+
+<div class="voice" data-recorder data-url="/sessions/{{ session_id }}/questions/{{ question_id }}/voice"
+     data-position="{{ position }}" data-total="{{ total }}">
+  <p><b>Или голосом</b> — до 5 минут.</p>
+  <div class="row">
+    <button type="button" data-act="start">🎙 Записать</button>
+    <button type="button" data-act="stop" hidden>⏹ Стоп</button>
+    <span data-timer class="muted"></span>
+  </div>
+  <div data-review hidden>
+    <audio controls></audio>
+    <div class="row">
+      <button type="button" data-act="send">Отправить запись</button>
+      <button type="button" data-act="again" class="ghost">Записать заново</button>
+    </div>
+  </div>
+  <p data-note class="error" hidden></p>
+  <details>
+    <summary>или загрузить файл (ogg, webm, mp3, wav, m4a)</summary>
+    <div class="row">
+      <input type="file" data-file accept="audio/*,.ogg,.oga,.opus,.webm,.mp3,.wav,.m4a">
+      <button type="button" data-act="upload">Отправить файл</button>
+    </div>
+  </details>
+</div>

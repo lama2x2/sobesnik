@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Вход · Sobesnik{% endblock %}
+{% block content %}
+<h1>Вход</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<section class="card">
+  <h2>Через Telegram</h2>
+  <p>Напишите боту <code>/web</code> — он пришлёт ссылку и код. Откройте ссылку на этом компьютере
+    и нажмите «Войти». Если Telegram на телефоне — введите код здесь:</p>
+  <form method="post" action="/login/code" class="row">
+    <input name="code" placeholder="K7MQ-2XDA" autocomplete="one-time-code" maxlength="20" required
+           aria-label="Код из бота">
+    <button>Войти по коду</button>
+  </form>
+  <p class="muted">Ссылка и код работают один раз, 10 минут. Это тот же профиль, что в боте.</p>
+</section>
+
+{% if local_login %}
+<section class="card">
+  <h2>Без Telegram</h2>
+  <p>Отдельный профиль этого компьютера: прогресса из бота в нём нет. Работает и без интернета.</p>
+  <form method="post" action="/login/local"><button>Войти без Telegram</button></form>
+</section>
+{% endif %}
+{% endblock %}

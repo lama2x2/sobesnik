@@ -1,0 +1,27 @@
+<section class="card" id="profile">
+  <h1>{{ vacancy.title }}</h1>
+  <div class="levels" role="group" aria-label="Уровень">
+    {% for level in levels %}
+    <form hx-post="/vacancies/{{ vacancy.id }}/level" hx-target="#profile" hx-swap="outerHTML">
+      <input type="hidden" name="level" value="{{ level }}">
+      <button class="{{ 'chosen' if level == vacancy.level else 'ghost' }}"
+              {% if level == vacancy.level %}aria-pressed="true"{% endif %}>{{ LEVEL_TITLES[level] }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% if vacancy.stack %}<p>Стек: {{ vacancy.stack|join(", ") }}</p>{% endif %}
+  {% if vacancy.requirements %}
+  <h3>Требования</h3>
+  <ul class="requirements">
+    {% for r in vacancy.requirements %}
+    <li>{% if r.is_required %}<span title="обязательное">✱</span> {% endif %}{{ r.text }}
+      <form hx-post="/vacancies/{{ vacancy.id }}/requirements/{{ r.id }}/remove" hx-target="#profile"
+            hx-swap="outerHTML" hx-confirm="Убрать это требование из вакансии?" class="inline">
+        <button class="link" title="Убрать требование">убрать</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if vacancy.requirements|selectattr("is_required")|list %}<p class="muted">✱ — обязательные</p>{% endif %}
+  {% endif %}
+</section>

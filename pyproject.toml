@@ -3,7 +3,14 @@ name = "sobesnik"
 version = "0.1.0"
 description = "Self-hosted тренажёр технических собеседований"
 requires-python = ">=3.12,<3.13"
-dependencies = ["sobesnik-api", "sobesnik-asr", "sobesnik-bot", "sobesnik-core", "sobesnik-llm"]
+dependencies = [
+    "sobesnik-api",
+    "sobesnik-asr",
+    "sobesnik-bot",
+    "sobesnik-core",
+    "sobesnik-llm",
+    "sobesnik-web",
+]
 
 [dependency-groups]
 dev = [
@@ -22,7 +29,7 @@ dev = [
 package = false
 
 [tool.uv.workspace]
-members = ["apps/api", "apps/bot", "packages/asr", "packages/core", "packages/llm"]
+members = ["apps/api", "apps/bot", "apps/web", "packages/asr", "packages/core", "packages/llm"]
 
 [tool.uv.sources]
 sobesnik-api = { workspace = true }
@@ -30,6 +37,7 @@ sobesnik-asr = { workspace = true }
 sobesnik-bot = { workspace = true }
 sobesnik-core = { workspace = true }
 sobesnik-llm = { workspace = true }
+sobesnik-web = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -42,13 +50,27 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
 ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["sobesnik_api", "sobesnik_asr", "sobesnik_bot", "sobesnik_core", "sobesnik_llm"]
+known-first-party = [
+    "sobesnik_api",
+    "sobesnik_asr",
+    "sobesnik_bot",
+    "sobesnik_core",
+    "sobesnik_llm",
+    "sobesnik_web",
+]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-mypy_path = ["apps/api/src", "apps/bot/src", "packages/asr/src", "packages/core/src", "packages/llm/src"]
+mypy_path = [
+    "apps/api/src",
+    "apps/bot/src",
+    "apps/web/src",
+    "packages/asr/src",
+    "packages/core/src",
+    "packages/llm/src",
+]
 explicit_package_bases = true
 exclude = ["^apps/api/alembic/", "/\\.venv/", "^research/data/"]
 
@@ -59,6 +81,7 @@ testpaths = [
     "packages/asr/tests",
     "apps/api/tests",
     "apps/bot/tests",
+    "apps/web/tests",
     "tests",
 ]
 asyncio_mode = "auto"
