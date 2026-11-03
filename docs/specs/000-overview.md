@@ -1,6 +1,6 @@
 # 000. Общая спецификация Sobesnik
 
-Статус: актуальна на 03.11.2026, после спринта 8. Детали реализации — в спеках 001–008.
+Статус: актуальна на 03.11.2026, после спринта 10. Детали реализации — в спеках 001–010.
 
 Документ задаёт рамку: что строим, из каких частей и как поймём, что MVP готов.
 Детальные спеки модулей (`001-…`, `002-…`) пишутся перед стартом соответствующего спринта
@@ -31,6 +31,8 @@ Sobesnik — self-hosted тренажёр технических собесед�
 - веб-кабинет на Jinja + HTMX — первый шаг после MVP (требования в §4.7, сделан в спринте 9);
 - импорт вакансий через API hh.ru (поиск, подписки); ссылка на одну вакансию принимается уже в MVP (VAC-1);
 - интервальное повторение (SM-2 и аналоги) вместо простого правила «слабая тема»;
+- генерация вопросов пачками: первый вопрос быстрее, остальные дописывает воркер (006 §16.1) — в спринте 10
+  отложена (010 §2): 5 вопросов укладываются в ~30 с;
 - провайдер vLLM, мониторинг (Prometheus/Grafana), несколько языков интерфейса;
 - live-coding и задачи с кодом — не планируются.
 
@@ -99,6 +101,8 @@ Sobesnik — self-hosted тренажёр технических собесед�
   а не показывается старый.
 - GEN-5. Хранятся модель и версия промпта генерации.
 - GEN-6 (желательно). Если в импортированном банке есть вопрос по теме, его можно подмешать вместе с эталонным ответом.
+- GEN-7. Настройки тренировки (010 §5): только обязательные требования и сложность «проще / как в вакансии /
+  сложнее» — сдвиг уровня в промпте на шаг; сложность работает и в повторении.
 
 ### 4.3. Ответ и распознавание речи (ANS, ASR)
 - ANS-1. Ответ текстом: до 5 000 символов.
@@ -134,6 +138,10 @@ Sobesnik — self-hosted тренажёр технических собесед�
 - EVAL-8. Импорт открытого датасета из JSONL в едином формате (вопрос, эталонный ответ, ответ, человеческие оценки,
   шкала, язык, источник, лицензия). Для каждого источника пишется конвертер в `research/`. Ответ датасета получает
   статус `imported` и оценивается только прогонами; голосовой ответ датасета распознаётся тем же воркером (005 §6–7).
+- EVAL-9. Подробный разбор по кнопке (010 §4): эталонный ответ, комментарий к каждому ключевому пункту (статус —
+  из оценки), неточности — дословные цитаты из ответа, неточность в самом вопросе; ссылки — только из карты тем.
+  Один разбор на оценку, хранится в `answer_review`, удаляется `/forget`. Сомнения в распознавании при выдаче
+  проходят фильтр шума (010 §6), в оценке и CSV хранятся все.
 
 ### 4.5. Прогресс и повторение (PRG)
 - PRG-1. После каждой оценки пересчитывается прогресс темы: число попыток, последний балл, среднее по трём последним.
@@ -274,7 +282,7 @@ flowchart TB
 | `vacancy` | id, user_id, raw_text, source `text\|url\|html`, source_url (null), title, level, stack text[], parser_model, prompt_version, created_at |
 | `requirement` | id, vacancy_id, text, topic_slug, is_required |
 | `question` | id, topic_slug, requirement_id (null), text, key_points jsonb, reference_answer (null), source `generated\|dataset`, dataset_id (null), external_id (null), gen_model, prompt_version |
-| `session` | id, user_id, vacancy_id (null), mode `vacancy\|repeat`, status, created_at, finished_at |
+| `session` | id, user_id, vacancy_id (null), mode `vacancy\|repeat`, topics (null), required_only, difficulty `easier\|same\|harder`, status, created_at, finished_at |
 | `session_question` | session_id, question_id, position |
 | `answer` | id, question_id, session_id (null), user_id (null), source `user\|dataset`, dataset_item_id (null), kind `text\|voice`, text (null), status (+ `imported` у ответов датасета), error (null), created_at, updated_at |
 | `audio` | id, answer_id (unique), s3_key, mime, size_bytes, duration_s, expires_at, deleted_at |
@@ -284,6 +292,7 @@ flowchart TB
 | `dataset` | id, name (unique), source_url, license, lang, score_key, score_min, score_max, synthetic, note, imported_at |
 | `dataset_item` | id, dataset_id, external_id, human_scores jsonb — один ответ датасета с его оценками (005 §3 п. 1) |
 | `topic_progress` | user_id, topic_slug, attempts, last_score, avg_last3, is_weak, updated_at |
+| `answer_review` | id, answer_id, evaluation_id (unique), provider, model, prompt_version, content jsonb (reference, points, mistakes, question_issue), raw_response, attempts, latency_ms, tokens_in, tokens_out, created_at |
 
 Ответ из датасета — обычный `answer` с `source = dataset` и без пользователя. Благодаря этому
 боевой конвейер и эксперименты используют один и тот же код оценки.
@@ -307,6 +316,7 @@ flowchart TB
 | `GET /users/{id}/vacancies` | вакансии пользователя для веб-кабинета (спринт 9) |
 | `POST /auth/links` | бот: одноразовая ссылка и код входа в веб на 10 минут (сервисный токен, спринт 9) |
 | `POST /auth/links/redeem` | веб: погасить ссылку или код → токен пользователя `sbu_…` |
+| `POST /answers/{id}/review`, `GET /answers/{id}/review` | подробный разбор ответа: создать (модель, ~20–40 с) или взять готовый (спринт 10) |
 | `POST /auth/local` | веб: вход без Telegram, один локальный пользователь на инстанс (`WEB_LOCAL_LOGIN`) |
 | `GET /auth/me`, `DELETE /auth/session`, `DELETE /auth/sessions` | кто вошёл; выйти; выйти везде |
 
