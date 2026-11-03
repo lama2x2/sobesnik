@@ -1,11 +1,12 @@
 import uuid
 
 from fastapi import APIRouter, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sobesnik_api.auth import CallerDep
-from sobesnik_api.db.models import Answer, Audio, Evaluation, Transcript
-from sobesnik_api.deps import DB, AppSettings, Queue, Storage
+from sobesnik_api.auth import Caller, CallerDep
+from sobesnik_api.db.models import Answer, AnswerReview, Audio, Evaluation, Transcript
+from sobesnik_api.deps import DB, LLM, AppSettings, Queue, Storage
 from sobesnik_api.errors import NotFoundError, PayloadTooLargeError
 from sobesnik_api.routes.sessions import owned_session
 from sobesnik_api.schemas import (
@@ -16,11 +17,15 @@ from sobesnik_api.schemas import (
     AudioOut,
     CriterionScoreOut,
     EvaluationOut,
+    ReviewMistakeOut,
+    ReviewOut,
+    ReviewPointOut,
     TranscriptOut,
     docs_out,
 )
 from sobesnik_api.services.answers import get_answer, submit_answer
 from sobesnik_api.services.evaluation import live_evaluation
+from sobesnik_api.services.review import ReviewResult, review_answer, statuses_of
 from sobesnik_api.services.voice import (
     AudioLimits,
     answer_audio,
@@ -125,6 +130,11 @@ async def answer_out(db: AsyncSession, answer: Answer, evaluation: Evaluation | 
         evaluation=evaluation_out(evaluation) if evaluation else None,
         topic=answer.question.topic_slug,
         docs=docs_out(answer.question.topic_slug, DOCS_SHOWN),
+        has_review=evaluation is not None
+        and await db.scalar(
+            select(AnswerReview.id).where(AnswerReview.evaluation_id == evaluation.id)
+        )
+        is not None,
     )
 
 
@@ -178,9 +188,70 @@ async def post_voice_answer(
     return AnswerAccepted(answer_id=answer.id, status=answer.status)
 
 
-@router.get("/answers/{answer_id}")
-async def read_answer(answer_id: uuid.UUID, db: DB, caller: CallerDep) -> AnswerOut:
+async def owned_answer(db: AsyncSession, caller: Caller, answer_id: uuid.UUID) -> Answer:
+    """Свой ответ; чужой — `404`, как несуществующий (009 §5.1)."""
     answer = await get_answer(db, answer_id)
     if not caller.owns(answer.user_id):
         raise NotFoundError("answer_not_found", "ответ не найден")
+    return answer
+
+
+@router.get("/answers/{answer_id}")
+async def read_answer(answer_id: uuid.UUID, db: DB, caller: CallerDep) -> AnswerOut:
+    answer = await owned_answer(db, caller, answer_id)
     return await answer_out(db, answer, await live_evaluation(db, answer.id))
+
+
+def review_out(answer: Answer, result: ReviewResult) -> ReviewOut:
+    content = result.review.content
+    comments = {p["n"]: p.get("comment", "") for p in content.get("points", [])}
+    key_points = answer.question.key_points
+    return ReviewOut(
+        answer_id=answer.id,
+        evaluation_id=result.evaluation.id,
+        cached=result.cached,
+        reference=content["reference"],
+        points=[
+            ReviewPointOut(n=n, text=text, status=status, comment=comments.get(n, ""))
+            for n, (text, status) in enumerate(zip(key_points, result.statuses, strict=True), 1)
+        ],
+        mistakes=[ReviewMistakeOut(**m) for m in content.get("mistakes", [])],
+        question_issue=content.get("question_issue"),
+        docs=docs_out(answer.question.topic_slug),
+        model=result.review.model,
+        latency_ms=result.review.latency_ms,
+    )
+
+
+def _user_answer(answer: Answer) -> Answer:
+    """Разбираются только ответы пользователей: у ответа датасета хозяина нет (010 §4.4)."""
+    if answer.source != "user":
+        raise NotFoundError("answer_not_found", "ответ не найден")
+    return answer
+
+
+@router.post("/answers/{answer_id}/review")
+async def post_review(
+    answer_id: uuid.UUID, db: DB, llm: LLM, settings: AppSettings, caller: CallerDep
+) -> ReviewOut:
+    """Подробный разбор: готовый — из БД, иначе вызов модели (~20–40 с на Маке)."""
+    answer = _user_answer(await owned_answer(db, caller, answer_id))
+    result = await review_answer(db, llm, answer, max_retries=settings.llm_max_retries)
+    return review_out(answer, result)
+
+
+@router.get("/answers/{answer_id}/review")
+async def read_review(answer_id: uuid.UUID, db: DB, caller: CallerDep) -> ReviewOut:
+    """Готовый разбор последней оценки; нет — `404 review_not_found`, модель не вызывается."""
+    answer = _user_answer(await owned_answer(db, caller, answer_id))
+    evaluation = await live_evaluation(db, answer.id)
+    review = (
+        await db.scalar(select(AnswerReview).where(AnswerReview.evaluation_id == evaluation.id))
+        if evaluation
+        else None
+    )
+    if evaluation is None or review is None:
+        raise NotFoundError("review_not_found", "разбора ещё нет")
+    return review_out(
+        answer, ReviewResult(review, evaluation, statuses_of(answer, evaluation), cached=True)
+    )

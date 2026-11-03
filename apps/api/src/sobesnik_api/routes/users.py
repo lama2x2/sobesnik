@@ -61,7 +61,9 @@ async def forget_user_data(
     caller.check_user(user_id)
     audio = await forget_audio(db, storage, user_id)
     out = ForgetOut(
-        audio_deleted=audio.audio_deleted, transcripts_deleted=audio.transcripts_deleted
+        audio_deleted=audio.audio_deleted,
+        transcripts_deleted=audio.transcripts_deleted,
+        reviews_deleted=audio.reviews_deleted,
     )
     if scope == "all":
         rest = await forget_rest(db, user_id)

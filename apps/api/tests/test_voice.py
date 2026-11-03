@@ -567,7 +567,7 @@ async def test_forget_audio(
     storage.available = True
     response = await client.delete(url)
     assert response.status_code == 200, response.text
-    assert response.json() == {"audio_deleted": 1, "transcripts_deleted": 2}
+    assert response.json() == {"audio_deleted": 1, "transcripts_deleted": 2, "reviews_deleted": 0}
     assert storage.objects == {}
     async with engine.connect() as conn:
         assert await conn.scalar(text("SELECT count(*) FROM audio")) == 0
@@ -581,7 +581,7 @@ async def test_forget_audio(
     assert body["evaluation"] is not None
 
     again = await client.delete(url)
-    assert again.json() == {"audio_deleted": 0, "transcripts_deleted": 0}
+    assert again.json() == {"audio_deleted": 0, "transcripts_deleted": 0, "reviews_deleted": 0}
     assert (await client.delete(f"/users/{uuid.uuid4()}/data?scope=audio")).status_code == 404
     assert (await client.delete(url.replace("audio", "video"))).status_code == 422
 

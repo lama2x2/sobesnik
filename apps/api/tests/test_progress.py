@@ -321,6 +321,7 @@ async def test_forget_all(
     assert response.json() == {
         "audio_deleted": 1,
         "transcripts_deleted": 0,
+        "reviews_deleted": 0,
         "answers_deleted": 2,
         "sessions_deleted": 1,
         "vacancies_deleted": 1,

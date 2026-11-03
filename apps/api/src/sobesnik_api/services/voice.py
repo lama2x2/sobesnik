@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sobesnik_api.db.models import Answer, Audio, Transcript, User
+from sobesnik_api.db.models import Answer, AnswerReview, Audio, Transcript, User
 from sobesnik_api.errors import (
     STORAGE_UNAVAILABLE,
     ConflictError,
@@ -202,6 +202,8 @@ async def add_reference_transcript(
 class ForgetResult:
     audio_deleted: int
     transcripts_deleted: int
+    reviews_deleted: int = 0
+    """Разборы голосовых ответов цитируют расшифровку и уходят вместе с ней (010 §4.3)."""
 
 
 async def forget_audio(db: AsyncSession, storage: AudioStorage, user_id: uuid.UUID) -> ForgetResult:
@@ -227,18 +229,31 @@ async def forget_audio(db: AsyncSession, storage: AudioStorage, user_id: uuid.UU
         log.warning("forget failed", extra={"user_id": str(user_id)})
         raise ServiceUnavailableError("storage_unavailable", STORAGE_UNAVAILABLE) from exc
     ids = [a.id for a in audios]
-    transcripts = 0
+    transcripts = reviews = 0
     if ids:
         transcripts = len(
             list(await db.scalars(select(Transcript.id).where(Transcript.audio_id.in_(ids))))
         )
+        deleted = await db.execute(
+            delete(AnswerReview)
+            .where(AnswerReview.answer_id.in_([a.answer_id for a in audios]))
+            .returning(AnswerReview.id)
+        )
+        reviews = len(deleted.all())
         await db.execute(delete(Audio).where(Audio.id.in_(ids)))  # транскрипты — каскадом
     await db.commit()
     log.info(
         "user audio forgotten",
-        extra={"user_id": str(user_id), "audio": len(ids), "transcripts": transcripts},
+        extra={
+            "user_id": str(user_id),
+            "audio": len(ids),
+            "transcripts": transcripts,
+            "reviews": reviews,
+        },
     )
-    return ForgetResult(audio_deleted=len(ids), transcripts_deleted=transcripts)
+    return ForgetResult(
+        audio_deleted=len(ids), transcripts_deleted=transcripts, reviews_deleted=reviews
+    )
 
 
 async def cleanup_expired_audio(

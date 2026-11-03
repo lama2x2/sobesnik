@@ -266,6 +266,35 @@ class AnswerOut(BaseModel):
     topic: str | None = None
     docs: list["TopicDocOut"] = []
     """До двух ссылок «что почитать» по теме вопроса (007 §7.2)."""
+    has_review: bool = False
+    """Подробный разбор последней оценки уже готов (010 §4)."""
+
+
+class ReviewPointOut(BaseModel):
+    n: int
+    text: str
+    status: Literal["covered", "missed", "doubtful"]
+    comment: str
+
+
+class ReviewMistakeOut(BaseModel):
+    quote: str
+    correction: str
+
+
+class ReviewOut(BaseModel):
+    """Подробный разбор ответа (010 §4.4): статусы пунктов — по оценке, ссылки — из карты тем."""
+
+    answer_id: uuid.UUID
+    evaluation_id: uuid.UUID
+    cached: bool
+    reference: str
+    points: list[ReviewPointOut]
+    mistakes: list[ReviewMistakeOut]
+    question_issue: str | None
+    docs: list["TopicDocOut"]
+    model: str
+    latency_ms: int
 
 
 class TopicDocOut(BaseModel):
@@ -284,6 +313,7 @@ def docs_out(topic: str | None, limit: int | None = None) -> list[TopicDocOut]:
 class ForgetOut(BaseModel):
     audio_deleted: int
     transcripts_deleted: int
+    reviews_deleted: int = 0
     answers_deleted: int | None = None
     sessions_deleted: int | None = None
     vacancies_deleted: int | None = None

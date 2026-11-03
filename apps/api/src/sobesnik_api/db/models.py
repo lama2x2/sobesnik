@@ -1,4 +1,5 @@
-"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7, 004 §7, 005 §7, 007 §10, 009 §9."""
+"""ORM-модели. Схема — 001-skeleton §7, 002 §10, 003 §7, 004 §7, 005 §7, 007 §10, 009 §9,
+010 §4.3."""
 
 import uuid
 from datetime import datetime
@@ -367,6 +368,32 @@ class Evaluation(Base):
     tokens_in: Mapped[int | None] = mapped_column(Integer)
     tokens_out: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AnswerReview(Base):
+    """Подробный разбор ответа по кнопке (010 §4.3): один на оценку, переоценка — новый разбор."""
+
+    __tablename__ = "answer_review"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    answer_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("answer.id", ondelete="CASCADE"), index=True
+    )
+    evaluation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("evaluation.id", ondelete="CASCADE"), unique=True
+    )
+    provider: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(Text)
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    """{"reference": "…", "points": [{"n", "comment"}], "mistakes": [{"quote", "correction"}],
+    "question_issue": "…" | null}; тексты пунктов и ссылки подставляются при выдаче."""
+    raw_response: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer)
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    tokens_in: Mapped[int | None] = mapped_column(Integer)
+    tokens_out: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
