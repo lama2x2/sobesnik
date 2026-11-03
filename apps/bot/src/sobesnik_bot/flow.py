@@ -25,7 +25,7 @@ from aiogram.exceptions import (
     TelegramNetworkError,
     TelegramRetryAfter,
 )
-from aiogram.types import InlineKeyboardMarkup, Message
+from aiogram.types import InlineKeyboardMarkup, LinkPreviewOptions, Message
 
 from sobesnik_bot import render
 from sobesnik_bot.api import Accepted, Answer, Api, ApiError, Level, Session, Vacancy
@@ -96,6 +96,7 @@ class Trainer:
         slow_after_s: float = 60.0,
         glue_wait_s: float = GLUE_WAIT_S,
         send_retry_delays_s: Sequence[float] = SEND_RETRY_DELAYS_S,
+        web_url: str = "http://127.0.0.1:8080",
     ) -> None:
         self.bot = bot
         self.api = api
@@ -106,6 +107,7 @@ class Trainer:
         self.slow_after_s = slow_after_s
         self.glue_wait_s = glue_wait_s
         self.send_retry_delays_s = tuple(send_retry_delays_s)
+        self.web_url = web_url
         self._glued: dict[int, _Glued] = {}
         self._busy: set[int] = set()
         """Пользователи, у которых идёт разбор вакансии или генерация вопросов."""
@@ -746,6 +748,22 @@ class Trainer:
             await self._send(chat_id, render.api_error_text(exc))
             return
         await self._send(chat_id, render.details_text(answer))
+
+    async def web(self, chat_id: int, telegram_id: int) -> None:
+        """`/web`: одноразовая ссылка и код входа в веб-кабинет (009 §5.2). Новая гасит старую."""
+        try:
+            state = await self.user(telegram_id)
+            assert state.user_id is not None
+            link = await self.api.web_link(state.user_id)
+        except ApiError as exc:
+            await self._send(chat_id, render.api_error_text(exc))
+            return
+        text = render.web_link_text(self.web_url, link.secret, link.code)
+        # без превью явно, а не только по умолчанию бота: предпросмотр не должен открывать ссылку
+        no_preview = LinkPreviewOptions(is_disabled=True)
+        await self._retry(
+            lambda: self.bot.send_message(chat_id, text, link_preview_options=no_preview)
+        )
 
     async def forget(self, chat_id: int, telegram_id: int) -> None:
         await self._send(chat_id, render.FORGET_ASK, render.forget_keyboard())

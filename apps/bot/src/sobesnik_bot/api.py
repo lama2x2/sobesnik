@@ -156,6 +156,14 @@ class Progress(_Model):
     sessions: list[SessionHistory]
 
 
+class WebLink(_Model):
+    """Одноразовый вход в веб-кабинет (009 §5.2): секрет — в адрес ссылки, код — с телефона."""
+
+    secret: str
+    code: str
+    expires_at: datetime
+
+
 class LlmStatus(_Model):
     """`GET /health/llm`, сжатый до того, что нужно боту (008 §7)."""
 
@@ -232,6 +240,8 @@ class Api(Protocol):
     async def forget_audio(self, user_id: uuid.UUID) -> Forgotten: ...
 
     async def forget_all(self, user_id: uuid.UUID) -> Forgotten: ...
+
+    async def web_link(self, user_id: uuid.UUID) -> WebLink: ...
 
     async def aclose(self) -> None: ...
 
@@ -360,6 +370,9 @@ class ApiClient:
     async def forget_all(self, user_id: uuid.UUID) -> Forgotten:
         path = f"/users/{user_id}/data"
         return await self._call(Forgotten, "DELETE", path, params={"scope": "all"})
+
+    async def web_link(self, user_id: uuid.UUID) -> WebLink:
+        return await self._call(WebLink, "POST", "/auth/links", json={"user_id": str(user_id)})
 
     async def aclose(self) -> None:
         await self._client.aclose()

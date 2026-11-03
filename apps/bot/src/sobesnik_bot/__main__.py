@@ -39,6 +39,7 @@ COMMANDS = [
     BotCommand(command="progress", description="прогресс по темам"),
     BotCommand(command="repeat", description="повторить слабые темы"),
     BotCommand(command="forget", description="удалить мои данные"),
+    BotCommand(command="web", description="войти в веб-кабинет"),
     BotCommand(command="help", description="справка"),
 ]
 
@@ -88,7 +89,13 @@ async def run(settings: BotSettings) -> None:
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     service_token = settings.api_service_token
     api = ApiClient(settings.api_url, service_token.get_secret_value() if service_token else None)
-    trainer = Trainer(bot, api, StateStore(redis), questions=settings.bot_questions)
+    trainer = Trainer(
+        bot,
+        api,
+        StateStore(redis),
+        questions=settings.bot_questions,
+        web_url=settings.web_public_url,
+    )
     consumer = EventConsumer(
         redis, settings.answer_events_stream, trainer.on_event, consumer=socket.gethostname()
     )

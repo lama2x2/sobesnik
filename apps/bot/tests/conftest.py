@@ -41,6 +41,7 @@ from sobesnik_bot.api import (
     Transcript,
     User,
     Vacancy,
+    WebLink,
 )
 from sobesnik_bot.flow import Trainer
 from sobesnik_bot.state import StateStore
@@ -324,6 +325,10 @@ class FakeApi:
             sessions_deleted=2,
             vacancies_deleted=1,
         )
+
+    async def web_link(self, user_id: uuid.UUID) -> WebLink:
+        self._call("web_link", user_id=user_id)
+        return WebLink(secret="s3cr3t-link", code="K7MQ-2XDA", expires_at=datetime.now(UTC))
 
     async def aclose(self) -> None:
         self.closed = True

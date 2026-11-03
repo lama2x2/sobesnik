@@ -102,6 +102,10 @@ def build_router(trainer: Trainer) -> Router:
     async def forget(message: Message) -> None:
         await trainer.forget(*_ids(message))
 
+    @router.message(Command("web"))
+    async def web(message: Message) -> None:
+        await trainer.web(*_ids(message))
+
     @router.message(F.text.startswith("/"))
     async def unknown_command(message: Message) -> None:
         await message.answer("Не знаю такой команды. /help — список.")
