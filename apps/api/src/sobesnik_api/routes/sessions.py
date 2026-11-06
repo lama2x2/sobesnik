@@ -22,6 +22,7 @@ from sobesnik_api.schemas import (
 )
 from sobesnik_api.services.answers import AnswerState, finish_session, session_answers
 from sobesnik_api.services.sessions import create_repeat_session, create_session, get_session
+from sobesnik_core.topics import topic_title
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ async def session_out(db: AsyncSession, session: TrainingSession) -> SessionOut:
                 text=item.question.text,
                 requirement_id=item.question.requirement_id,
                 topic=item.question.topic_slug,
+                topic_title=topic_title(item.question.topic_slug),
                 key_points=item.question.key_points,
                 answer=_answer_out(answers.get(item.question_id)),
                 docs=docs_out(item.question.topic_slug, DOCS_SHOWN),

@@ -54,6 +54,7 @@ class SessionQuestion(_Model):
     position: int
     text: str
     topic: str | None
+    topic_title: str | None = None
     answer: SessionAnswer | None = None
     docs: list["Doc"] = []
 

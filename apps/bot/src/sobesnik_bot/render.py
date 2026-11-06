@@ -19,6 +19,7 @@ from sobesnik_bot.api import (
     Progress,
     Review,
     Session,
+    SessionQuestion,
     Summary,
     TopicProgress,
     Vacancy,
@@ -365,9 +366,15 @@ def pick_keyboard(
 # --- вопрос ------------------------------------------------------------------
 
 
+def question_topic(question: SessionQuestion) -> str | None:
+    """Короткий заголовок темы; слаг — только если темы нет в справочнике."""
+    return short_title(question.topic_title) if question.topic_title else question.topic
+
+
 def question_text(session: Session, position: int) -> str:
     question = next(q for q in session.questions if q.position == position)
-    topic = f" · тема: {escape(question.topic)}" if question.topic else ""
+    title = question_topic(question)
+    topic = f" · тема: {escape(title)}" if title else ""
     head = f"<b>Вопрос {position} из {len(session.questions)}</b>{topic}"
     if session.mode == "repeat":
         head = "🔁 Повторение · " + head
@@ -613,7 +620,7 @@ def api_error_text(error: ApiError) -> str:
 
 def summary_text(session: Session, summary: Summary) -> str:
     """Сводка (006 §8.5): без среднего балла — среднее из 3–5 шумных чисел обманчиво."""
-    topics = {q.id: q.topic for q in session.questions}
+    topics = {q.id: question_topic(q) for q in session.questions}
     lines = [
         "🏁 <b>Сессия завершена</b>",
         f"Отвечено {summary.answered} из {len(summary.questions)} · зачтено {summary.passed}",

@@ -136,6 +136,7 @@ def _question(position: int) -> SessionQuestion:
         position=position,
         text=f"Вопрос {position}: зачем нужен <index>?",
         topic=f"db.topic{position}",
+        topic_title="Индексы: планы запросов",
     )
 
 

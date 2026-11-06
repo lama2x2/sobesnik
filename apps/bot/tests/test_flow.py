@@ -129,7 +129,7 @@ async def test_text_answer_full_session(
     assert api.calls[-1] == ("create_session", {"vacancy_id": api.vacancy.id, "n": 3})
     assert tg.texts()[0] == render.preparing(3)
     question = tg.of(SendMessage)[-1]
-    assert question.text.startswith("<b>Вопрос 1 из 3</b> · тема: db.topic1")
+    assert question.text.startswith("<b>Вопрос 1 из 3</b> · тема: Индексы\n")
     assert "&lt;index&gt;" in question.text  # текст вопроса экранирован
 
     for position in (1, 2, 3):
@@ -182,8 +182,8 @@ async def test_skip_and_summary(
     await trainer.on_event(answer.id, "done")
     summary = tg.last_text()
     assert "Отвечено 1 из 3 · зачтено 0" in summary
-    assert "1. — db.topic1: пропущен" in summary
-    assert "3. 🔴 db.topic3 — ≈ 30" in summary
+    assert "1. — Индексы: пропущен" in summary
+    assert "3. 🔴 Индексы — ≈ 30" in summary
 
 
 async def test_voice_answer(user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer) -> None:

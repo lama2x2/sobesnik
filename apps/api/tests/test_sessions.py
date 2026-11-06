@@ -37,6 +37,7 @@ async def test_create_session_default_n(
     expected = [reqs[0], reqs[1], reqs[2], reqs[0], reqs[1]]
     assert [q["requirement_id"] for q in questions] == [r["id"] for r in expected]
     assert [q["topic"] for q in questions] == [r["topic"] for r in expected]
+    assert [q["topic_title"] for q in questions] == [r["topic_title"] for r in expected]
 
     request = llm.requests[0]
     assert "План — 5 вопросов" in request.prompt

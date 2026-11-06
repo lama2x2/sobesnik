@@ -195,6 +195,8 @@ class SessionQuestionOut(BaseModel):
     text: str
     requirement_id: uuid.UUID | None
     topic: str | None
+    topic_title: str | None = None
+    """Заголовок темы для показа: слаг людям не показываем."""
     key_points: list[str]
     answer: SessionAnswerOut | None = None
     docs: list["TopicDocOut"] = []
