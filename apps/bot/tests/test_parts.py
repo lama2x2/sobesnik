@@ -17,7 +17,13 @@ from aiogram.types import User
 from redis.asyncio import Redis
 
 from sobesnik_bot import render
-from sobesnik_bot.__main__ import TOKEN_REJECTED, connect, llm_summary
+from sobesnik_bot.__main__ import (
+    DNS_CACHE_S,
+    TOKEN_REJECTED,
+    connect,
+    llm_summary,
+    telegram_session,
+)
 from sobesnik_bot.api import Answer, ApiClient, ApiError, ApiUnavailable, Evaluation, Transcript
 from sobesnik_bot.events import GROUP, EventConsumer
 from sobesnik_bot.logs import (
@@ -239,6 +245,15 @@ async def test_connect_retries_without_network(caplog: pytest.LogCaptureFixture)
         me = await connect(Bot(TOKEN, session=session), retry_s=0)
     assert me is not None and me.username == "sobesnik_bot"
     assert caplog.text.count(NO_TELEGRAM) == 2
+
+
+async def test_session_rereads_telegram_address_after_vpn_switch() -> None:
+    session = telegram_session()
+    try:
+        client = await session.create_session()
+        assert client.connector._cached_hosts._ttl == DNS_CACHE_S  # type: ignore[union-attr]
+    finally:
+        await session.close()
 
 
 async def test_llm_status_and_summary() -> None:

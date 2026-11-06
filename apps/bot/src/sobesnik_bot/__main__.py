@@ -7,6 +7,7 @@ import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramNetworkError, TelegramUnauthorizedError
 from aiogram.types import BotCommand, User
@@ -32,6 +33,7 @@ TOKEN_REJECTED = (
     "(/mybots → API Token), впишите в TELEGRAM_BOT_TOKEN в .env и выполните: docker compose up -d"
 )
 CONNECT_RETRY_S = 30.0
+DNS_CACHE_S = 60
 
 COMMANDS = [
     BotCommand(command="new", description="новая вакансия"),
@@ -51,6 +53,14 @@ def build_dispatcher(trainer: Trainer, allowed: frozenset[int]) -> Dispatcher:
     dp.callback_query.outer_middleware(access)
     dp.include_router(build_router(trainer))
     return dp
+
+
+def telegram_session() -> AiohttpSession:
+    """Короткий кэш DNS: aiogram держит адрес час, и после переключения VPN (fake-IP отдаёт
+    свои адреса) бот час стучался бы на мёртвый адрес, хотя сеть уже есть."""
+    session = AiohttpSession()
+    session._connector_init["ttl_dns_cache"] = DNS_CACHE_S
+    return session
 
 
 async def connect(bot: Bot, retry_s: float = CONNECT_RETRY_S) -> User | None:
@@ -83,6 +93,7 @@ async def run(settings: BotSettings) -> None:
     token = settings.telegram_bot_token.get_secret_value()
     bot = Bot(
         token,
+        session=telegram_session(),
         # превью ссылок «что почитать» раздувают сообщение (007 §8.4)
         default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
     )
