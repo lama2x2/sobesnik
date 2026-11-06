@@ -26,6 +26,7 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
 )
 from aiogram.types import InlineKeyboardMarkup, LinkPreviewOptions, Message
+from aiohttp import ClientError
 
 from sobesnik_bot import render
 from sobesnik_bot.api import Accepted, Answer, Api, ApiError, Level, Session, Vacancy
@@ -110,6 +111,9 @@ class Trainer:
         self.web_url = web_url
         self._glued: dict[int, _Glued] = {}
         self._busy: set[int] = set()
+        self._receiving: set[int] = set()
+        """Пользователи, чей голосовой ответ ещё скачивается: режим пока `answer`, и второй
+        ответ или «Пропустить» попали бы на тот же вопрос."""
         """Пользователи, у которых идёт разбор вакансии или генерация вопросов."""
         self._locks: defaultdict[uuid.UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._typing: dict[uuid.UUID, asyncio.Task[None]] = {}
@@ -342,7 +346,7 @@ class Trainer:
     ) -> None:
         """Текст — ответ на вопрос, если бот его ждёт; иначе вакансия."""
         state = await self.store.get_user(telegram_id)
-        if state.mode == "waiting":
+        if state.mode == "waiting" or telegram_id in self._receiving:
             await self._send(chat_id, render.WAIT_EVALUATION)
         elif state.mode == "answer" and state.session_id and state.question_id:
             await self._answer_text(chat_id, telegram_id, state, text)
@@ -387,10 +391,12 @@ class Trainer:
         filename: str,
         mime: str,
     ) -> None:
-        """Голосовой ответ (С3): файл скачивается в память и уходит в API, на диск не пишется."""
+        """Голосовой ответ (С3): файл скачивается в память и уходит в API, на диск не пишется.
+
+        Кружочек весит мегабайты, поэтому приём подтверждается до скачивания (BOT-4)."""
         started = time.monotonic()
         state = await self.store.get_user(telegram_id)
-        if state.mode == "waiting":
+        if state.mode == "waiting" or telegram_id in self._receiving:
             await self._send(chat_id, render.WAIT_EVALUATION)
             return
         if state.mode != "answer" or not state.session_id or not state.question_id:
@@ -399,23 +405,35 @@ class Trainer:
         if size is not None and size > TELEGRAM_DOWNLOAD_MAX_BYTES:
             await self._send(chat_id, render.FILE_TOO_BIG)
             return
+        self._receiving.add(telegram_id)
         try:
-            buffer = await self.bot.download(file_id)
-        except TelegramAPIError as exc:
-            log.warning("voice download failed", extra={"error": type(exc).__name__})
-            await self._send(chat_id, render.FILE_TOO_BIG)
-            return
-        data = buffer.getvalue() if buffer is not None else b""  # type: ignore[attr-defined]
-        try:
-            accepted = await self.api.answer_voice(
-                state.session_id, state.question_id, data, filename, mime
+            status = await self._send(chat_id, render.VOICE_RECEIVING)
+            ack_ms = round((time.monotonic() - started) * 1000)
+            try:
+                buffer = await self.bot.download(file_id)
+            except TelegramBadRequest as exc:
+                log.warning("voice download failed", extra={"error": type(exc).__name__})
+                await self._edit(chat_id, status.message_id, render.FILE_TOO_BIG)
+                return
+            except (TelegramAPIError, ClientError, TimeoutError) as exc:
+                log.warning("voice download failed", extra={"error": type(exc).__name__})
+                await self._edit(chat_id, status.message_id, render.DOWNLOAD_FAILED)
+                return
+            data = buffer.getvalue() if buffer is not None else b""  # type: ignore[attr-defined]
+            try:
+                accepted = await self.api.answer_voice(
+                    state.session_id, state.question_id, data, filename, mime
+                )
+            except ApiError as exc:
+                await self._edit(chat_id, status.message_id, render.api_error_text(exc))
+                return
+            finally:
+                del data, buffer
+            await self._accepted(
+                chat_id, telegram_id, state, accepted, "voice", started, status, ack_ms
             )
-        except ApiError as exc:
-            await self._send(chat_id, render.api_error_text(exc))
-            return
         finally:
-            del data, buffer
-        await self._accepted(chat_id, telegram_id, state, accepted, "voice", started)
+            self._receiving.discard(telegram_id)
 
     async def _accepted(
         self,
@@ -425,16 +443,23 @@ class Trainer:
         accepted: Accepted,
         kind: str,
         started: float,
+        status: Message | None = None,
+        ack_ms: int | None = None,
     ) -> None:
         """Приём подтверждается сразу (BOT-4), дальше статус меняют события (BOT-6).
 
-        `started` — `time.monotonic()` при получении сообщения: `ack_ms` в логе — замер 000 §5."""
+        `started` — `time.monotonic()` при получении сообщения: `ack_ms` в логе — замер 000 §5.
+        `status` и `ack_ms` — у голоса: подтверждение уже ушло до скачивания файла."""
         assert state.session_id is not None and state.question_id is not None
         asr_ready = accepted.asr_ready is not False
-        message = await self._send(
-            chat_id, render.status_text(kind, "received", asr_ready=asr_ready)
-        )
-        ack_ms = round((time.monotonic() - started) * 1000)
+        text = render.status_text(kind, "received", asr_ready=asr_ready)
+        if status is None:
+            message = await self._send(chat_id, text)
+        else:
+            message = status
+            await self._edit(chat_id, status.message_id, text)
+        if ack_ms is None:
+            ack_ms = round((time.monotonic() - started) * 1000)
         pending = Pending(
             answer_id=accepted.answer_id,
             telegram_id=telegram_id,
@@ -636,6 +661,8 @@ class Trainer:
 
     async def skip(self, chat_id: int, telegram_id: int, question_id: uuid.UUID) -> str:
         """Следующий вопрос; у пропущенного — ссылки «что почитать» по теме (007 §8.4)."""
+        if telegram_id in self._receiving:
+            return render.WAIT_EVALUATION
         state = await self.store.get_user(telegram_id)
         if state.mode != "answer" or state.question_id != question_id:
             return "Этот вопрос уже не текущий."

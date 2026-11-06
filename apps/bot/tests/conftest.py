@@ -74,6 +74,9 @@ class FakeSession(BaseSession):
         """Сколько следующих запросов упадёт с сетевой ошибкой: Telegram недоступен."""
         """Сообщения, которые вернул `sendMessage`: по ним видны `message_id`."""
         self._ids = count(500)
+        self.download_gate: asyncio.Event | None = None
+        """Задан — скачивание файла ждёт его: так видно, что бот делает во время скачивания."""
+        self.download_error: Exception | None = None
 
     async def make_request(
         self,
@@ -108,6 +111,10 @@ class FakeSession(BaseSession):
         chunk_size: int = 65536,
         raise_for_status: bool = True,
     ) -> AsyncGenerator[bytes, None]:
+        if self.download_gate is not None:
+            await self.download_gate.wait()
+        if self.download_error is not None:
+            raise self.download_error
         yield self.files[url.rsplit("/", 1)[-1]]
 
     async def close(self) -> None:

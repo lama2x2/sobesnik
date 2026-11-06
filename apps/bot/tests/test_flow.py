@@ -7,8 +7,15 @@ from typing import Any
 
 import pytest
 from aiogram import Bot
-from aiogram.exceptions import TelegramNetworkError
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendChatAction, SendMessage
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
+from aiogram.methods import (
+    AnswerCallbackQuery,
+    EditMessageText,
+    GetFile,
+    SendChatAction,
+    SendMessage,
+)
+from aiohttp import ClientError
 
 from sobesnik_bot import render
 from sobesnik_bot.__main__ import build_dispatcher
@@ -192,12 +199,14 @@ async def test_voice_answer(user: Chat_, api: FakeApi, tg: FakeSession, trainer:
     await user.voice()
     assert api.voice_data == [(b"OggS-voice", "voice.ogg", "audio/ogg")]
     answer = api.last_answer()
-    status = tg.of(SendMessage)[-1]
+    assert tg.of(SendMessage)[-1].text == render.VOICE_RECEIVING
+    status = tg.of(EditMessageText)[-1]
     assert status.text == "✅ Принято. 🎧 Распознаю речь…"
+    assert status.message_id == tg.sent[-1].message_id  # то же сообщение, не новое
 
     api.set_status(answer.id, "transcribing")
     await trainer.on_event(answer.id, "transcribing")
-    assert not tg.of(EditMessageText)
+    assert len(tg.of(EditMessageText)) == 1  # текст тот же — не редактируем
 
     api.set_status(answer.id, "evaluating", transcript="ивент луп и <корутины>")
     await trainer.on_event(answer.id, "evaluating")
@@ -222,11 +231,11 @@ async def test_first_voice_warns_model_is_downloading(
     tg.files["voice-1"] = b"OggS-voice"
     await user.voice()
     answer = api.last_answer()
-    assert tg.of(SendMessage)[-1].text == f"✅ Принято. {render.ASR_FIRST_TIME}"
+    assert tg.of(EditMessageText)[-1].text == f"✅ Принято. {render.ASR_FIRST_TIME}"
 
     api.set_status(answer.id, "transcribing", asr_ready=False)
     await trainer.on_event(answer.id, "transcribing")
-    assert not tg.of(EditMessageText)  # текст тот же — не редактируем
+    assert len(tg.of(EditMessageText)) == 1  # текст тот же — не редактируем
 
     api.set_status(answer.id, "transcribing", asr_ready=True)  # модель докачалась
     await trainer.sync(answer.id)  # событий нет — сверка по таймеру
@@ -239,7 +248,61 @@ async def test_video_note_answer(user: Chat_, api: FakeApi, tg: FakeSession) -> 
     tg.files["circle-1"] = b"mp4-circle"
     await user.video_note()
     assert api.voice_data == [(b"mp4-circle", "circle.mp4", "video/mp4")]
-    assert tg.of(SendMessage)[-1].text == "✅ Принято. 🎧 Распознаю речь…"
+    assert tg.last_text() == "✅ Принято. 🎧 Распознаю речь…"
+
+
+async def test_voice_confirmed_before_download(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
+    """Статус уходит до скачивания (BOT-4), а второй ответ на тот же вопрос не принимается."""
+    await in_training(user, api, tg)
+    assert api.session is not None
+    question = api.session.questions[0]
+    tg.files["circle-1"] = b"mp4-circle"
+    tg.download_gate = asyncio.Event()
+    tg.clear()
+    circle = asyncio.create_task(user.video_note())
+    await asyncio.sleep(0.01)
+    assert tg.texts() == [render.VOICE_RECEIVING]
+    assert not api.voice_data
+
+    await user.send("текстом, пока качается")
+    await user.voice()
+    await user.press(SkipCb(question_id=question.id).pack())
+    assert tg.texts() == [render.VOICE_RECEIVING, render.WAIT_EVALUATION, render.WAIT_EVALUATION]
+    assert tg.of(AnswerCallbackQuery)[-1].text == render.WAIT_EVALUATION
+
+    tg.download_gate.set()
+    await circle
+    assert len(api.voice_data) == 1
+    assert tg.last_text() == "✅ Принято. 🎧 Распознаю речь…"
+    assert len(tg.of(SendMessage)) == 3  # подтверждение и два «жду», без нового статуса
+
+
+@pytest.mark.parametrize(
+    ("error", "text"),
+    [
+        (ClientError("reset"), render.DOWNLOAD_FAILED),
+        (TimeoutError(), render.DOWNLOAD_FAILED),
+        (
+            TelegramBadRequest(GetFile(file_id="voice-1"), "file is too big"),
+            render.FILE_TOO_BIG,
+        ),
+    ],
+)
+async def test_voice_download_failed_replaces_status(
+    user: Chat_, api: FakeApi, tg: FakeSession, error: Exception, text: str
+) -> None:
+    """Статус «скачиваю» не остаётся висеть, а ответ можно отправить заново."""
+    await in_training(user, api, tg)
+    tg.files["voice-1"] = b"OggS-voice"
+    tg.download_error = error
+    await user.voice()
+    assert tg.last_text() == text
+    assert isinstance(tg.calls[-1], EditMessageText)
+    assert not api.voice_data
+
+    tg.download_error = None
+    await user.voice()
+    assert len(api.voice_data) == 1
 
 
 async def test_question_count_buttons(user: Chat_, api: FakeApi, tg: FakeSession) -> None:
@@ -262,7 +325,7 @@ async def test_voice_failures(user: Chat_, api: FakeApi, tg: FakeSession, traine
     tg.files["voice-1"] = b"x"
     api.errors["answer_voice"] = ApiError(422, "audio_too_long", "длиннее 300 с")
     await user.voice()
-    assert tg.last_text() == render.API_ERRORS["audio_too_long"]
+    assert tg.of(EditMessageText)[-1].text == render.API_ERRORS["audio_too_long"]
 
     await user.voice()
     answer = api.last_answer()
