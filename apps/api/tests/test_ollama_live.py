@@ -42,7 +42,16 @@ RESUME = """\
 
 def provider(kind: ProviderName) -> LLMProvider:
     base_url = OLLAMA + "/v1" if kind == "openai_compatible" else OLLAMA
-    config = LLMConfig(provider=kind, base_url=base_url, model=MODEL, timeout_s=300, num_ctx=16384)
+    # через /v1 модель иначе рассуждает, и JSON обрезается лимитом (analysis 3.1, спринт 2)
+    effort = "none" if kind == "openai_compatible" else None
+    config = LLMConfig(
+        provider=kind,
+        base_url=base_url,
+        model=MODEL,
+        timeout_s=300,
+        num_ctx=16384,
+        reasoning_effort=effort,
+    )
     return make_provider(config)
 
 
