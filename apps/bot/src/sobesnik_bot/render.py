@@ -7,7 +7,12 @@ import uuid
 from html import escape
 
 from aiogram.filters.callback_data import CallbackData
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
 
 from sobesnik_bot.api import (
     LEVELS,
@@ -105,6 +110,44 @@ class RepeatCb(CallbackData, prefix="repeat"):
     """«Всё равно повторить»: сроки не подошли — темы с ближайшим сроком (011 §5)."""
 
 
+BUTTON_NEW = "📄 Новая вакансия"
+BUTTON_TRAIN = "▶️ Тренировка"
+BUTTON_PROGRESS = "📊 Прогресс"
+BUTTON_REPEAT = "🔁 Повторить"
+PANEL_HINT = "Внизу теперь панель с кнопками: новая вакансия, тренировка, прогресс и повторение."
+
+
+def _plain(text: str) -> str:
+    """Без краёв и `U+FE0F`: промах — и текст панели ушёл бы модели как ответ (012 §4.2)."""
+    return text.replace("\ufe0f", "").strip()
+
+
+PANEL_COMMANDS = {
+    _plain(BUTTON_NEW): "new",
+    _plain(BUTTON_TRAIN): "train",
+    _plain(BUTTON_PROGRESS): "progress",
+    _plain(BUTTON_REPEAT): "repeat",
+}
+
+
+def panel_command(text: str | None) -> str | None:
+    """Команда кнопки панели: `new`, `train`, `progress`, `repeat`; другой текст — `None`."""
+    return PANEL_COMMANDS.get(_plain(text)) if text else None
+
+
+def panel() -> ReplyKeyboardMarkup:
+    """Постоянная панель (012 §3). Telegram не даёт редактировать сообщение с такой
+    клавиатурой, поэтому она только на сообщениях, которые бот не правит."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BUTTON_NEW), KeyboardButton(text=BUTTON_TRAIN)],
+            [KeyboardButton(text=BUTTON_PROGRESS), KeyboardButton(text=BUTTON_REPEAT)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
 INTRO = (
     "Привет! Я тренирую к техническим собеседованиям.\n\n"
     "1. Пришлите текст вакансии или ссылку на неё — я разберу стек и уровень.\n"
@@ -126,7 +169,8 @@ HELP = (
     "/repeat — новые вопросы по темам, которые пора повторить\n"
     "/forget — удалить голосовые или все мои данные\n"
     "/web — войти в веб-кабинет на компьютере с Sobesnik\n"
-    "/help — эта справка"
+    "/help — эта справка\n\n"
+    "Кнопки внизу экрана — те же /new, /train, /progress и /repeat."
 )
 
 ASK_VACANCY = "Пришлите текст вакансии или ссылку на неё."

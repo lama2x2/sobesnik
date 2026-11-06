@@ -1,5 +1,7 @@
 """Обработчики Telegram (006 §4, 007 §8): разбирают апдейт и передают его в `Trainer`."""
 
+from collections.abc import Callable
+
 from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command, CommandObject
@@ -45,6 +47,15 @@ def links(text: str, entities: list[MessageEntity] | None) -> list[str]:
     return found
 
 
+def pressed(command: str) -> Callable[[Message], bool]:
+    """Нажата кнопка панели: идёт в обработчик команды, мимо ответа и вакансии (012 §4)."""
+
+    def check(message: Message) -> bool:
+        return render.panel_command(message.text) == command
+
+    return check
+
+
 def build_router(trainer: Trainer) -> Router:
     root = Router(name="root")
 
@@ -68,13 +79,14 @@ def build_router(trainer: Trainer) -> Router:
         await trainer.start(*_ids(message), help=True)
 
     @router.message(Command("new"))
+    @router.message(pressed("new"))
     async def new(message: Message) -> None:
         await trainer.new_vacancy(*_ids(message))
 
-    async def count_arg(message: Message, command: CommandObject) -> int | None:
-        """Число вопросов из `/train N` и `/repeat N`: 0 — не задано, неверное — сообщение
-        и `None`."""
-        if not command.args:
+    async def count_arg(message: Message, command: CommandObject | None) -> int | None:
+        """Число вопросов из `/train N` и `/repeat N`: 0 — не задано (и у кнопки панели),
+        неверное — сообщение и `None`."""
+        if command is None or not command.args:
             return 0
         arg = command.args.strip()
         if not arg.isdigit() or not QUESTIONS_MIN <= int(arg) <= QUESTIONS_MAX:
@@ -85,18 +97,21 @@ def build_router(trainer: Trainer) -> Router:
         return int(arg)
 
     @router.message(Command("train"))
-    async def train(message: Message, command: CommandObject) -> None:
+    @router.message(pressed("train"))
+    async def train(message: Message, command: CommandObject | None = None) -> None:
         n = await count_arg(message, command)
         if n is not None:
             await trainer.train(*_ids(message), n or None)
 
     @router.message(Command("repeat"))
-    async def repeat(message: Message, command: CommandObject) -> None:
+    @router.message(pressed("repeat"))
+    async def repeat(message: Message, command: CommandObject | None = None) -> None:
         n = await count_arg(message, command)
         if n is not None:
             await trainer.repeat(*_ids(message), n or None)
 
     @router.message(Command("progress"))
+    @router.message(pressed("progress"))
     async def progress(message: Message) -> None:
         await trainer.progress(*_ids(message))
 

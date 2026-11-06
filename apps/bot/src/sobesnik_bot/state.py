@@ -36,6 +36,8 @@ class UserState:
     required_only: bool = False
     difficulty: Difficulty = "same"
     """Настройки тренировки (010 §5): действуют на все тренировки и /repeat, пока не сменят."""
+    question_message_id: int | None = None
+    """Сообщение с текущим вопросом: после разбора вопрос переносится вниз (012 §5)."""
 
 
 @dataclass
@@ -78,6 +80,16 @@ class StateStore:
     def _pending_index(self) -> str:
         return f"{self._prefix}:pending"
 
+    def _panel_key(self, chat_id: int) -> str:
+        return f"{self._prefix}:panel:{chat_id}"
+
+    async def mark_panel(self, chat_id: int) -> bool:
+        """`True`, если панель ещё не показывали: так она уходит ровно один раз (012 §3.1)."""
+        return bool(await self._redis.set(self._panel_key(chat_id), "1", nx=True))
+
+    async def unmark_panel(self, chat_id: int) -> None:
+        await self._redis.delete(self._panel_key(chat_id))
+
     async def get_user(self, telegram_id: int) -> UserState:
         raw = await self._redis.get(self._user_key(telegram_id))
         if raw is None:
@@ -94,6 +106,7 @@ class StateStore:
             picked=list(data.get("picked", [])),
             required_only=bool(data.get("required_only", False)),
             difficulty=data.get("difficulty", "same"),
+            question_message_id=data.get("question_message_id"),
         )
 
     async def save_user(self, telegram_id: int, state: UserState) -> None:

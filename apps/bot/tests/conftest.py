@@ -14,10 +14,10 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.base import BaseSession
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramNetworkError
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.methods import EditMessageText, GetFile, SendMessage, TelegramMethod
 from aiogram.methods.base import TelegramType
-from aiogram.types import Chat, File, Message
+from aiogram.types import Chat, File, Message, ReplyKeyboardMarkup
 from redis.asyncio import Redis
 
 from sobesnik_bot.__main__ import build_dispatcher
@@ -77,6 +77,8 @@ class FakeSession(BaseSession):
         self.download_gate: asyncio.Event | None = None
         """Задан — скачивание файла ждёт его: так видно, что бот делает во время скачивания."""
         self.download_error: Exception | None = None
+        self.with_panel: set[int] = set()
+        """Сообщения с reply-клавиатурой: их настоящий Telegram не даёт редактировать."""
 
     async def make_request(
         self,
@@ -87,6 +89,8 @@ class FakeSession(BaseSession):
         if self.fail_next > 0:
             self.fail_next -= 1
             raise TelegramNetworkError(method=method, message="Cannot connect to host")
+        if isinstance(method, EditMessageText) and method.message_id in self.with_panel:
+            raise TelegramBadRequest(method=method, message="message can't be edited")
         self.calls.append(method)
         result: Any = True
         if isinstance(method, SendMessage):
@@ -97,6 +101,8 @@ class FakeSession(BaseSession):
                 text=method.text,
             )
             self.sent.append(result)
+            if isinstance(method.reply_markup, ReplyKeyboardMarkup):
+                self.with_panel.add(result.message_id)
         elif isinstance(method, GetFile):
             result = File(
                 file_id=method.file_id, file_unique_id="u", file_path=f"files/{method.file_id}"
@@ -470,6 +476,7 @@ async def trainer(
     trainer = Trainer(
         bot, api, store, questions=3, now=clock, glue_wait_s=0.01, send_retry_delays_s=(0, 0)
     )
+    await store.mark_panel(CHAT)  # подсказка о панели — только в test_panel.py
     yield trainer
     await trainer.close()
 

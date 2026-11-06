@@ -25,7 +25,7 @@ from aiogram.exceptions import (
     TelegramNetworkError,
     TelegramRetryAfter,
 )
-from aiogram.types import InlineKeyboardMarkup, LinkPreviewOptions, Message
+from aiogram.types import InlineKeyboardMarkup, LinkPreviewOptions, Message, ReplyKeyboardMarkup
 from aiohttp import ClientError
 
 from sobesnik_bot import render
@@ -159,10 +159,33 @@ class Trainer:
                 await asyncio.sleep(delay)
         return await call()
 
-    async def _send(
-        self, chat_id: int, text: str, markup: InlineKeyboardMarkup | None = None
+    async def _post(
+        self,
+        chat_id: int,
+        text: str,
+        markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None = None,
     ) -> Message:
         return await self._retry(lambda: self.bot.send_message(chat_id, text, reply_markup=markup))
+
+    async def _send(
+        self,
+        chat_id: int,
+        text: str,
+        markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None = None,
+    ) -> Message:
+        await self._show_panel(chat_id)
+        return await self._post(chat_id, text, markup)
+
+    async def _show_panel(self, chat_id: int) -> None:
+        """Панель тому, кто уже пользуется ботом и /start не нажмёт: один раз, отдельным
+        сообщением (012 §3.1). Не вышло — попытка будет со следующим сообщением."""
+        if not await self.store.mark_panel(chat_id):
+            return
+        try:
+            await self._post(chat_id, render.PANEL_HINT, render.panel())
+        except TelegramAPIError as exc:
+            await self.store.unmark_panel(chat_id)
+            log.warning("panel not shown", extra={"error": type(exc).__name__})
 
     async def _edit(
         self, chat_id: int, message_id: int, text: str, markup: InlineKeyboardMarkup | None = None
@@ -240,9 +263,16 @@ class Trainer:
             llm = await self.api.llm_status()
             if not llm.ok:
                 text += "\n\n" + render.llm_warning(llm.hint)
-        await self._send(chat_id, text)
+        await self.store.mark_panel(chat_id)  # подсказка не нужна: панель на этом сообщении
+        await self._send(chat_id, text, render.panel())
 
     async def new_vacancy(self, chat_id: int, telegram_id: int) -> None:
+        if telegram_id in self._busy:  # иначе вопрос пришёл бы после «пришлите вакансию»
+            await self._send(chat_id, render.BUSY)
+            return
+        if telegram_id in self._receiving:  # приём голосового вернул бы прежний режим
+            await self._send(chat_id, render.WAIT_EVALUATION)
+            return
         state = await self.store.get_user(telegram_id)
         state.session_id = state.question_id = None
         state.position, state.mode = 0, "idle"
@@ -546,7 +576,7 @@ class Trainer:
         except ApiError as exc:
             await self._send(chat_id, render.api_error_text(exc))
             return None
-        if state.mode == "waiting":
+        if state.mode == "waiting" or telegram_id in self._receiving:
             await self._send(chat_id, render.WAIT_EVALUATION)
             return None
         return state
