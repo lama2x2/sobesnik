@@ -223,14 +223,14 @@ def build_router(trainer: Trainer) -> Router:
     @router.callback_query(DetailsCb.filter())
     async def details(query: CallbackQuery, callback_data: DetailsCb) -> None:
         await query.answer()
-        chat_id, _, _ = _cb_ids(query)
-        await trainer.details(chat_id, callback_data.answer_id)
+        chat_id, _, telegram_id = _cb_ids(query)
+        await trainer.details(chat_id, telegram_id, callback_data.answer_id)
 
     @router.callback_query(ReviewCb.filter())
     async def review(query: CallbackQuery, callback_data: ReviewCb) -> None:
         await query.answer()
-        chat_id, _, _ = _cb_ids(query)
-        await trainer.review(chat_id, callback_data.answer_id)
+        chat_id, _, telegram_id = _cb_ids(query)
+        await trainer.review(chat_id, telegram_id, callback_data.answer_id)
 
     @router.callback_query(SettingsCb.filter())
     async def settings(query: CallbackQuery, callback_data: SettingsCb) -> None:

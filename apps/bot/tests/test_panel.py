@@ -4,13 +4,14 @@ import asyncio
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.methods import SendMessage
+from aiogram.methods import DeleteMessage, EditMessageText, SendMessage
 from aiogram.types import ReplyKeyboardMarkup
 
 from sobesnik_bot import render
 from sobesnik_bot.__main__ import COMMANDS
-from sobesnik_bot.api import Progress
+from sobesnik_bot.api import ApiError, Progress
 from sobesnik_bot.flow import SPLIT_FROM, Trainer
+from sobesnik_bot.render import DetailsCb, ReviewCb, SkipCb
 from sobesnik_bot.state import StateStore
 
 from .conftest import USER, Chat_, FakeApi, FakeSession
@@ -260,3 +261,171 @@ async def test_button_in_group_is_refused(
     assert tg.texts() == [render.PRIVATE_ONLY]
     assert not panels(tg)
     assert not api.calls
+
+
+async def evaluate_last(api: FakeApi, tg: FakeSession, trainer: Trainer) -> ReviewCb:
+    """Оценка последнего ответа и кнопка его разбора; `tg` чист, следующий вопрос уже задан."""
+    answer = api.last_answer()
+    api.evaluate(answer.id)
+    await trainer.on_event(answer.id, "done")
+    tg.clear()
+    return ReviewCb(answer_id=answer.id)
+
+
+async def on_second_question(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer
+) -> ReviewCb:
+    await answered(user, api, tg)
+    return await evaluate_last(api, tg, trainer)
+
+
+def only_question(tg: FakeSession) -> None:
+    assert not tg.of(DeleteMessage)
+    assert not [m for m in tg.of(SendMessage) if m.text.startswith("<b>Вопрос")]
+
+
+async def test_question_goes_below_review(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer, store: StateStore
+) -> None:
+    review = await on_second_question(user, api, tg, trainer)
+    state = await store.get_user(USER)
+    await user.press(review.pack())
+
+    assert tg.of(EditMessageText)[-1].text == render.review_text(api.review)
+    question = tg.of(SendMessage)[-1]
+    assert question.text.startswith("<b>Вопрос 2 из 3</b>")
+    assert question.reply_markup is not None
+    assert [d.message_id for d in tg.of(DeleteMessage)] == [state.question_message_id]
+
+    moved = await store.get_user(USER)
+    assert moved.question_message_id == tg.sent[-1].message_id
+    assert moved.question_id == state.question_id
+    assert (moved.mode, moved.position) == ("answer", 2)
+
+    await user.press(SkipCb(question_id=state.question_id).pack())  # кнопка новой копии работает
+    assert tg.last_text().startswith("<b>Вопрос 3 из 3</b>")
+
+
+async def test_repeated_review_keeps_one_copy(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer, store: StateStore
+) -> None:
+    review = await on_second_question(user, api, tg, trainer)
+    await user.press(review.pack())
+    first = tg.sent[-1].message_id
+    tg.clear()
+
+    await user.press(review.pack())  # API отдаёт разбор сразу
+    assert [c.message_id for c in tg.of(DeleteMessage)] == [first]
+    assert tg.of(SendMessage)[-1].text.startswith("<b>Вопрос 2 из 3</b>")
+    assert (await store.get_user(USER)).question_message_id == tg.sent[-1].message_id
+
+
+async def test_review_of_last_question_keeps_summary(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer, store: StateStore
+) -> None:
+    await in_training(user, api, tg)
+    for _ in range(2):
+        await user.send("Мой ответ")
+        review = await evaluate_last(api, tg, trainer)
+    await user.send("Мой ответ")
+    review = await evaluate_last(api, tg, trainer)
+    assert (await store.get_user(USER)).mode == "idle"  # сводка уже пришла
+
+    await user.press(review.pack())
+    assert tg.last_text() == render.review_text(api.review)
+    only_question(tg)
+
+
+async def test_review_while_waiting_for_evaluation(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer, store: StateStore
+) -> None:
+    review = await on_second_question(user, api, tg, trainer)
+    await user.send("Ответ на второй вопрос")
+    tg.clear()
+    await user.press(review.pack())
+    assert tg.last_text() == render.review_text(api.review)
+    only_question(tg)
+
+    await evaluate_last(api, tg, trainer)  # следующий вопрос придёт сам, под разбором
+    assert (await store.get_user(USER)).position == 3
+
+
+async def test_question_arrived_during_review_stays(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer
+) -> None:
+    """Пока готовился разбор, ответили на вопрос и пришёл следующий: он и так ниже разбора."""
+    review = await on_second_question(user, api, tg, trainer)
+    api.review_gate = asyncio.Event()
+    pressing = asyncio.create_task(user.press(review.pack()))
+    await asyncio.sleep(0.05)
+
+    await user.send("Ответ на второй вопрос")
+    answer = api.last_answer()
+    api.evaluate(answer.id)
+    await trainer.on_event(answer.id, "done")
+    tg.clear()
+
+    api.review_gate.set()
+    await pressing
+    assert tg.last_text() == render.review_text(api.review)
+    only_question(tg)
+
+
+async def test_failed_review_leaves_question(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer
+) -> None:
+    review = await on_second_question(user, api, tg, trainer)
+    api.errors["review_answer"] = ApiError(503, "llm_unavailable", "нет")
+    await user.press(review.pack())
+    assert tg.last_text() == render.review_error_text(ApiError(503, "llm_unavailable", "нет"))
+    only_question(tg)
+
+
+async def test_review_while_voice_downloads(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer
+) -> None:
+    review = await on_second_question(user, api, tg, trainer)
+    tg.files["voice-1"] = b"OggS"
+    tg.download_gate = asyncio.Event()
+    voice = asyncio.create_task(user.voice())
+    await asyncio.sleep(0.05)
+    tg.clear()
+
+    await user.press(review.pack())
+    only_question(tg)
+    tg.download_gate.set()
+    await voice
+
+
+async def test_question_survives_failed_delete(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer, store: StateStore
+) -> None:
+    review = await on_second_question(user, api, tg, trainer)
+    tg.delete_error = True
+    await user.press(review.pack())
+    assert tg.last_text().startswith("<b>Вопрос 2 из 3</b>")
+    assert (await store.get_user(USER)).question_message_id == tg.sent[-1].message_id
+
+
+async def test_question_asked_before_update_has_no_message_id(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer, store: StateStore
+) -> None:
+    """Вопрос задан до обновления бота: номера нет, удалять нечего, вопрос всё равно внизу."""
+    review = await on_second_question(user, api, tg, trainer)
+    state = await store.get_user(USER)
+    state.question_message_id = None
+    await store.save_user(USER, state)
+    await user.press(review.pack())
+    assert tg.last_text().startswith("<b>Вопрос 2 из 3</b>")
+    assert not tg.of(DeleteMessage)
+
+
+async def test_question_goes_below_details(
+    user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer
+) -> None:
+    review = await on_second_question(user, api, tg, trainer)
+    await user.press(DetailsCb(answer_id=review.answer_id).pack())
+    answer = api.answers[review.answer_id]
+    assert tg.texts()[-2] == render.details_text(answer)
+    assert tg.last_text().startswith("<b>Вопрос 2 из 3</b>")
+    assert len(tg.of(DeleteMessage)) == 1

@@ -435,8 +435,9 @@ async def test_details_button(user: Chat_, api: FakeApi, tg: FakeSession, traine
     api.evaluate(answer.id)
     await trainer.on_event(answer.id, "done")
     await user.press(DetailsCb(answer_id=answer.id).pack())
-    assert tg.last_text().startswith("<b>Почему такие баллы</b>")
-    assert "почему depth" in tg.last_text()
+    details = tg.texts()[-2]  # ниже — следующий вопрос заново (012 §5)
+    assert details.startswith("<b>Почему такие баллы</b>")
+    assert "почему depth" in details
 
 
 async def test_review_button(user: Chat_, api: FakeApi, tg: FakeSession, trainer: Trainer) -> None:
@@ -449,8 +450,8 @@ async def test_review_button(user: Chat_, api: FakeApi, tg: FakeSession, trainer
     assert ReviewCb(answer_id=answer.id).pack() in str(evaluation.reply_markup)
 
     await user.press(ReviewCb(answer_id=answer.id).pack())
-    assert api.calls[-1] == ("review_answer", {"answer_id": answer.id})
-    text = tg.last_text()
+    assert ("review_answer", {"answer_id": answer.id}) in api.calls
+    text = tg.texts()[-2]  # ниже — следующий вопрос заново (012 §5)
     assert text.startswith("<b>📖 Разбор</b>")
     assert "✅ упорядочен по a — верно" in text
     assert "❌ нужен индекс по b — почему" in text

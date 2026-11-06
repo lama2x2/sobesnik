@@ -29,7 +29,16 @@ from aiogram.types import InlineKeyboardMarkup, LinkPreviewOptions, Message, Rep
 from aiohttp import ClientError
 
 from sobesnik_bot import render
-from sobesnik_bot.api import Accepted, Answer, Api, ApiError, Level, Session, Vacancy
+from sobesnik_bot.api import (
+    Accepted,
+    Answer,
+    Api,
+    ApiError,
+    Level,
+    Session,
+    SessionQuestion,
+    Vacancy,
+)
 from sobesnik_bot.state import Pending, StateStore, UserState
 
 log = logging.getLogger(__name__)
@@ -683,11 +692,43 @@ class Trainer:
         question = upcoming[0]
         state.question_id, state.position, state.mode = question.id, question.position, "answer"
         await self.store.save_user(telegram_id, state)
-        await self._send(
+        await self._send_question(chat_id, telegram_id, session, question)
+
+    async def _send_question(
+        self, chat_id: int, telegram_id: int, session: Session, question: SessionQuestion
+    ) -> None:
+        message = await self._send(
             chat_id,
             render.question_text(session, question.position),
             render.skip_keyboard(question.id),
         )
+        state = await self.store.get_user(telegram_id)  # пока шла отправка, режим мог смениться
+        if state.question_id == question.id:
+            state.question_message_id = message.message_id
+            await self.store.save_user(telegram_id, state)
+
+    async def _question_down(self, chat_id: int, telegram_id: int, after: int) -> None:
+        """Сообщение `after` выросло под текущим вопросом: вопрос — заново внизу, прежняя копия
+        удаляется (012 §5). Не ждём ответа или вопрос уже ниже — переносить нечего."""
+        state = await self.store.get_user(telegram_id)
+        if state.mode != "answer" or telegram_id in self._receiving:
+            return
+        if state.session_id is None or state.question_id is None:
+            return
+        old = state.question_message_id
+        if old is not None and old > after:
+            return
+        try:
+            session = await self.api.get_session(state.session_id)
+        except ApiError:
+            return
+        question = next((q for q in session.questions if q.id == state.question_id), None)
+        if question is None:
+            return
+        await self._send_question(chat_id, telegram_id, session, question)
+        if old is not None:
+            with contextlib.suppress(TelegramAPIError):  # не вышло — останется вторая копия
+                await self._retry(lambda: self.bot.delete_message(chat_id, old))
 
     async def skip(self, chat_id: int, telegram_id: int, question_id: uuid.UUID) -> str:
         """Следующий вопрос; у пропущенного — ссылки «что почитать» по теме (007 §8.4)."""
@@ -835,16 +876,18 @@ class Trainer:
 
     # --- кнопки --------------------------------------------------------------
 
-    async def details(self, chat_id: int, answer_id: uuid.UUID) -> None:
+    async def details(self, chat_id: int, telegram_id: int, answer_id: uuid.UUID) -> None:
         try:
             answer = await self.api.get_answer(answer_id)
         except ApiError as exc:
             await self._send(chat_id, render.api_error_text(exc))
             return
-        await self._send(chat_id, render.details_text(answer))
+        message = await self._send(chat_id, render.details_text(answer))
+        await self._question_down(chat_id, telegram_id, message.message_id)
 
-    async def review(self, chat_id: int, answer_id: uuid.UUID) -> None:
-        """«📖 Разобрать подробно» (010 §4): статус и «печатает…», потом разбор вместо статуса."""
+    async def review(self, chat_id: int, telegram_id: int, answer_id: uuid.UUID) -> None:
+        """«📖 Разобрать подробно» (010 §4): статус и «печатает…», потом разбор вместо статуса
+        и текущий вопрос ниже него (012 §5)."""
         status = await self._send(chat_id, render.REVIEWING)
         try:
             async with self.typing(chat_id):
@@ -854,6 +897,7 @@ class Trainer:
             return
         await self._edit(chat_id, status.message_id, render.review_text(review))
         log.info("review shown", extra={"answer_id": str(answer_id)})
+        await self._question_down(chat_id, telegram_id, status.message_id)
 
     async def web(self, chat_id: int, telegram_id: int) -> None:
         """`/web`: одноразовая ссылка и код входа в веб-кабинет (009 §5.2). Новая гасит старую."""

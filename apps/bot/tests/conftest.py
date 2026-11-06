@@ -15,7 +15,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.base import BaseSession
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
-from aiogram.methods import EditMessageText, GetFile, SendMessage, TelegramMethod
+from aiogram.methods import DeleteMessage, EditMessageText, GetFile, SendMessage, TelegramMethod
 from aiogram.methods.base import TelegramType
 from aiogram.types import Chat, File, Message, ReplyKeyboardMarkup
 from redis.asyncio import Redis
@@ -77,6 +77,7 @@ class FakeSession(BaseSession):
         self.download_gate: asyncio.Event | None = None
         """Задан — скачивание файла ждёт его: так видно, что бот делает во время скачивания."""
         self.download_error: Exception | None = None
+        self.delete_error = False
         self.with_panel: set[int] = set()
         """Сообщения с reply-клавиатурой: их настоящий Telegram не даёт редактировать."""
 
@@ -91,6 +92,8 @@ class FakeSession(BaseSession):
             raise TelegramNetworkError(method=method, message="Cannot connect to host")
         if isinstance(method, EditMessageText) and method.message_id in self.with_panel:
             raise TelegramBadRequest(method=method, message="message can't be edited")
+        if isinstance(method, DeleteMessage) and self.delete_error:
+            raise TelegramBadRequest(method=method, message="message can't be deleted")
         self.calls.append(method)
         result: Any = True
         if isinstance(method, SendMessage):
@@ -179,6 +182,7 @@ class FakeApi:
         self.closed = False
         self.gate: asyncio.Event | None = None
         """Если задан, разбор вакансии ждёт его — как долгий вызов модели."""
+        self.review_gate: asyncio.Event | None = None
         self.review = Review(
             reference="Индекс упорядочен по первому столбцу.",
             points=[
@@ -361,6 +365,8 @@ class FakeApi:
 
     async def review_answer(self, answer_id: uuid.UUID) -> Review:
         self._call("review_answer", answer_id=answer_id)
+        if self.review_gate is not None:
+            await self.review_gate.wait()
         return self.review
 
     async def forget_audio(self, user_id: uuid.UUID) -> Forgotten:
